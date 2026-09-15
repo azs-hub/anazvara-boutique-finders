@@ -1,0 +1,1 @@
+"""Anazvara Boutique Scraper package."""
