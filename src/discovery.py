@@ -7,7 +7,8 @@ Flow implemented so far:
         → URL normalization / classification
         → Candidate
         → fetch + PageEvidence + BusinessSignals
-        → later: business identification (not this step)
+        → BusinessCandidate identification (deterministic)
+        → later: enrichment / SQLite
 
 Search stays behind ``SearchProvider``. Candidate building lives in
 ``candidates.py``. Directory and article hits are classified and kept;

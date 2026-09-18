@@ -14,6 +14,7 @@ __pycache__/
 *.DS_Store*
 data/*.db
 output/*.xlsx
+output/benchmark_*.json
 
 # Local SearXNG secrets and files generated at container start
 searxng/.env

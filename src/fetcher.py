@@ -226,7 +226,18 @@ class PageFetcher:
         parser = RobotFileParser()
         parser.set_url(robots_url)
         try:
-            parser.read()
+            response = self.session.get(
+                robots_url,
+                timeout=self.timeout,
+                allow_redirects=True,
+            )
+            if response.status_code >= 400:
+                self._robots_cache[robots_url] = True
+                return True
+            parser.parse(response.text.splitlines())
+        except requests.RequestException:
+            self._robots_cache[robots_url] = True
+            return True
         except Exception:
             self._robots_cache[robots_url] = True
             return True

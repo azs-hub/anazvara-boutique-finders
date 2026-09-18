@@ -11,11 +11,11 @@ SearXNG discovery
     → candidate normalization
     → candidate classification
     → public page fetch + evidence extraction
-    → later: business identification
-    → later: historical SQLite / Excel
+    → deterministic BusinessCandidate identification
+    → later: enrichment / historical SQLite / Excel
 ```
 
-This step fetches publicly accessible pages and extracts evidence. It does **not** decide whether a page is a boutique, write to SQLite, or export Excel. It does not crawl `/about` or `/contact`.
+Business identification is conservative and rule-based. Weak evidence stays `UNKNOWN`. Directory/article pages yield linked businesses; those websites are not fetched in this step.
 
 ## Requirements
 
@@ -69,6 +69,29 @@ python src/fetch_test.py --from-search "women's fashion boutique Mumbai" --limit
 ```
 
 The `--from-search` form fetches a small mixed sample (not the full result list). SOCIAL/VIDEO pages are attempted once; if the site blocks the request, the candidate URL is kept as evidence.
+
+### Business identification (deterministic)
+
+`src/business_candidates.py` turns `PageEvidence` + `BusinessSignals` into `BusinessCandidate` records. It does not use AI. A directory or article page can produce many candidates; a website page usually produces one (the owner), unless the title is clearly a roundup list.
+
+```bash
+source .venv/bin/activate
+python src/identify_test.py "women's fashion boutique Mumbai"
+```
+
+This fetches a small mixed sample (2 websites, 2 directories, 1 social, 1 video when available) and prints identified businesses. It does not crawl the extracted websites.
+
+### Identification benchmark
+
+Measure the current deterministic baseline on a larger SearXNG result set (no crawling of extracted links):
+
+```bash
+source .venv/bin/activate
+python src/benchmark.py "women's fashion boutique Mumbai" --limit 50
+python src/benchmark.py "women's fashion boutique Mumbai" --limit 100
+```
+
+Writes `output/benchmark_YYYYMMDD_HHMMSS.json` (not committed).
 
 ### Local SearXNG (Docker Compose)
 
@@ -177,6 +200,9 @@ anazvara-boutique-scraper/
 │   ├── content_extraction.py
 │   ├── page_inspection.py
 │   ├── fetch_test.py
+│   ├── business_candidates.py
+│   ├── identify_test.py
+│   ├── benchmark.py
 │   ├── scraper.py            # boutique record model; identification later
 │   ├── database.py
 │   ├── deduplication.py
@@ -190,7 +216,8 @@ anazvara-boutique-scraper/
 │   ├── test_searxng_parse.py
 │   ├── test_candidate_discovery.py
 │   ├── test_fetcher.py
-│   └── test_content_extraction.py
+│   ├── test_content_extraction.py
+│   └── test_business_candidates.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
@@ -206,9 +233,9 @@ Later runs for the same city must exclude boutiques already stored in SQLite. Th
 
 ## Not in this version
 
-- Boutique identification / scoring (is this a women's fashion boutique?)
+- Boutique identification beyond the deterministic baseline
 - Writing extracted businesses to SQLite or Excel
-- Crawling /about, /contact, or directory expansion
+- Crawling /about, /contact, or extracted directory websites
 - Playwright
 - AI / LLM APIs
 - Paid search or scraping APIs
