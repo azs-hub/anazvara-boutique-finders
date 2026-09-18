@@ -1,19 +1,36 @@
 """Discovery layer for finding boutique website candidates.
 
-Web search is isolated behind ``SearchProvider`` in ``search_provider.py``.
-The first concrete engine is SearXNG (``searxng_provider.py``). Later
-providers can be added without rewriting website scraping, SQLite, or Excel
-export.
+Flow implemented so far:
 
-``BoutiqueDiscovery`` (city + quantity workflow) is not implemented yet.
-This step only tests whether a configured SearXNG instance returns useful
-search hits. Result websites are not scraped here.
+    SearXNG search
+        → SearchResult
+        → URL normalization / classification
+        → Candidate (this step)
+        → future website scraping
+
+Search stays behind ``SearchProvider``. Candidate building lives in
+``candidates.py``. Directory and article hits are classified and kept;
+``expand_from_page`` is the later hook for extracting boutique links from
+those pages (not implemented here).
+
+``BoutiqueDiscovery`` (city + quantity + historical SQLite exclusion) is
+still unimplemented.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterator
+
+from candidates import Candidate, candidates_from_search_results, expand_from_page
+
+__all__ = [
+    "BoutiqueDiscovery",
+    "Candidate",
+    "DiscoveryCandidate",
+    "candidates_from_search_results",
+    "expand_from_page",
+]
 
 
 @dataclass(frozen=True)

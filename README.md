@@ -4,7 +4,16 @@ Free Python application that discovers clothing and fashion boutiques city by ci
 
 The application does **not** use AI/LLM APIs and does **not** consume OpenAI tokens.
 
-This step adds an isolated SearXNG search-provider test. It does **not** scrape boutique websites, extract emails/phones/Instagram, or run the final city/quantity workflow.
+Current discovery flow:
+
+```
+SearXNG discovery
+    → candidate normalization
+    → candidate classification
+    → future website scraping
+```
+
+This step does **not** scrape boutique websites, extract emails/phones/Instagram, expand directory pages, or run the final city/quantity workflow.
 
 ## Requirements
 
@@ -32,7 +41,18 @@ The discovery layer is split so the rest of the application does not depend on o
 - `src/searxng_provider.py` — SearXNG JSON API implementation
 - `src/discovery.py` — later city/quantity boutique discovery (still a stub)
 
-Search results include title, URL, snippet, and source/engine name. Website scraping is a later step.
+Search results include title, URL, snippet, and source/engine name.
+
+Candidate discovery (`src/candidates.py`) then:
+
+- Normalizes URLs (fragments, `www.`, tracking parameters, trailing slashes; **paths are kept**)
+- Extracts a comparable host/domain (`www.example.com` ≡ `example.com`)
+- Classifies each hit with URL heuristics only (not AI): `WEBSITE`, `SOCIAL`, `DIRECTORY`, `ARTICLE`, `VIDEO`, `UNKNOWN`
+- Deduplicates **WEBSITE** hits that share a domain, keeping the most useful URL (usually the homepage)
+
+Directory and article results are **kept**. They are not discarded; a later step can fetch those pages and extract boutique links (`expand_from_page`). Historical SQLite exclusion is also later.
+
+Website scraping is not implemented yet.
 
 ### Local SearXNG (Docker Compose)
 
@@ -86,11 +106,22 @@ python src/search_test.py "women's fashion boutique Mumbai"
 
 This sends the query to the local SearXNG `/search` JSON endpoint and prints titles, URLs, and snippets. It does not fetch or scrape the result websites.
 
-### Parse unit test (no network)
+### Run the candidate discovery test
+
+With SearXNG running:
 
 ```bash
 source .venv/bin/activate
-python -m unittest tests.test_searxng_parse
+python src/candidate_test.py "women's fashion boutique Mumbai"
+```
+
+This classifies and deduplicates the search hits. It does not scrape websites or follow directory pages.
+
+### Unit tests (no network)
+
+```bash
+source .venv/bin/activate
+python -m unittest tests.test_searxng_parse tests.test_candidate_discovery
 ```
 
 ## Run the SQLite / Excel smoke test
@@ -122,6 +153,10 @@ anazvara-boutique-scraper/
 │   ├── search_provider.py    # search interface
 │   ├── searxng_provider.py   # SearXNG JSON provider
 │   ├── search_test.py        # CLI search test
+│   ├── url_normalization.py
+│   ├── classification.py     # heuristic result types (not AI)
+│   ├── candidates.py         # Candidate model + in-search dedup
+│   ├── candidate_test.py     # CLI candidate discovery test
 │   ├── scraper.py            # stub — not implemented yet
 │   ├── database.py
 │   ├── deduplication.py
@@ -132,7 +167,8 @@ anazvara-boutique-scraper/
 │   └── core-config/
 │       └── settings.yml      # JSON output enabled; secrets stay in searxng/.env
 ├── tests/
-│   └── test_searxng_parse.py
+│   ├── test_searxng_parse.py
+│   └── test_candidate_discovery.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
