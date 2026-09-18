@@ -10,10 +10,12 @@ Current discovery flow:
 SearXNG discovery
     → candidate normalization
     → candidate classification
-    → future website scraping
+    → public page fetch + evidence extraction
+    → later: business identification
+    → later: historical SQLite / Excel
 ```
 
-This step does **not** scrape boutique websites, extract emails/phones/Instagram, expand directory pages, or run the final city/quantity workflow.
+This step fetches publicly accessible pages and extracts evidence. It does **not** decide whether a page is a boutique, write to SQLite, or export Excel. It does not crawl `/about` or `/contact`.
 
 ## Requirements
 
@@ -52,7 +54,21 @@ Candidate discovery (`src/candidates.py`) then:
 
 Directory and article results are **kept**. They are not discarded; a later step can fetch those pages and extract boutique links (`expand_from_page`). Historical SQLite exclusion is also later.
 
-Website scraping is not implemented yet.
+### Public page fetch and evidence
+
+`src/fetcher.py` performs a single HTTP GET with `requests` (timeout 15s, 0 retries by default, 1s delay between requests, 1 MiB HTML cap). `robots.txt` is respected; 403/timeout/connection failures are recorded, not raised.
+
+`src/content_extraction.py` uses BeautifulSoup to collect `PageEvidence` (title, description, visible text, headings, absolute links) and `BusinessSignals` (emails, phones, social/WhatsApp URLs, address-like snippets, city mentions). These are **signals only** — not boutique identification.
+
+Limits: 50 000 characters of visible text, 200 links, 40 headings, 30 items per signal list.
+
+```bash
+source .venv/bin/activate
+python src/fetch_test.py https://example.com
+python src/fetch_test.py --from-search "women's fashion boutique Mumbai" --limit 5
+```
+
+The `--from-search` form fetches a small mixed sample (not the full result list). SOCIAL/VIDEO pages are attempted once; if the site blocks the request, the candidate URL is kept as evidence.
 
 ### Local SearXNG (Docker Compose)
 
@@ -121,7 +137,7 @@ This classifies and deduplicates the search hits. It does not scrape websites or
 
 ```bash
 source .venv/bin/activate
-python -m unittest tests.test_searxng_parse tests.test_candidate_discovery
+python -m unittest discover -s tests -v
 ```
 
 ## Run the SQLite / Excel smoke test
@@ -157,7 +173,11 @@ anazvara-boutique-scraper/
 │   ├── classification.py     # heuristic result types (not AI)
 │   ├── candidates.py         # Candidate model + in-search dedup
 │   ├── candidate_test.py     # CLI candidate discovery test
-│   ├── scraper.py            # stub — not implemented yet
+│   ├── fetcher.py
+│   ├── content_extraction.py
+│   ├── page_inspection.py
+│   ├── fetch_test.py
+│   ├── scraper.py            # boutique record model; identification later
 │   ├── database.py
 │   ├── deduplication.py
 │   └── excel_export.py
@@ -168,7 +188,9 @@ anazvara-boutique-scraper/
 │       └── settings.yml      # JSON output enabled; secrets stay in searxng/.env
 ├── tests/
 │   ├── test_searxng_parse.py
-│   └── test_candidate_discovery.py
+│   ├── test_candidate_discovery.py
+│   ├── test_fetcher.py
+│   └── test_content_extraction.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
@@ -184,7 +206,9 @@ Later runs for the same city must exclude boutiques already stored in SQLite. Th
 
 ## Not in this version
 
-- Boutique website scraping (emails, phones, Instagram, addresses)
+- Boutique identification / scoring (is this a women's fashion boutique?)
+- Writing extracted businesses to SQLite or Excel
+- Crawling /about, /contact, or directory expansion
 - Playwright
 - AI / LLM APIs
 - Paid search or scraping APIs

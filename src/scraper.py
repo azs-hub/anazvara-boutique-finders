@@ -3,7 +3,9 @@
 Uses ordinary HTTP requests and BeautifulSoup. Playwright is out of scope
 until testing shows it is required.
 
-Not implemented in this increment.
+Page fetching and evidence extraction live in ``fetcher.py`` and
+``content_extraction.py``. This module still holds ``BoutiqueRecord`` for a
+later identification step. ``WebsiteScraper.scrape`` is not implemented yet.
 """
 
 from __future__ import annotations

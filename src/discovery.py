@@ -5,8 +5,9 @@ Flow implemented so far:
     SearXNG search
         → SearchResult
         → URL normalization / classification
-        → Candidate (this step)
-        → future website scraping
+        → Candidate
+        → fetch + PageEvidence + BusinessSignals
+        → later: business identification (not this step)
 
 Search stays behind ``SearchProvider``. Candidate building lives in
 ``candidates.py``. Directory and article hits are classified and kept;
