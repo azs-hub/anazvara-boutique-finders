@@ -14,3 +14,8 @@ __pycache__/
 *.DS_Store*
 data/*.db
 output/*.xlsx
+
+# Local SearXNG secrets and files generated at container start
+searxng/.env
+searxng/core-config/limiter.toml
+searxng/core-config/favicons.toml

@@ -1,0 +1,17 @@
+# Local SearXNG settings. Defaults are loaded, then these overrides apply.
+# JSON must be listed here or /search?format=json returns HTTP 403.
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  # secret_key is set via SEARXNG_SECRET in searxng/.env (not committed)
+
+valkey:
+  url: valkey://valkey:6379/0

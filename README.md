@@ -10,6 +10,7 @@ This step adds an isolated SearXNG search-provider test. It does **not** scrape 
 
 - macOS or Linux
 - Python 3.11
+- Docker and Docker Compose (for the local SearXNG instance)
 - A project virtual environment at `.venv` (already created for local development)
 
 ## Setup
@@ -33,30 +34,57 @@ The discovery layer is split so the rest of the application does not depend on o
 
 Search results include title, URL, snippet, and source/engine name. Website scraping is a later step.
 
-### Configure SearXNG
+### Local SearXNG (Docker Compose)
 
-No public SearXNG instance is hard-coded. Set the base URL with an environment variable:
+SearXNG currently runs **local-only** on this Mac. The published port is bound to `127.0.0.1`, not the public internet. Do not expose it publicly.
+
+Local URL: [http://localhost:8888](http://localhost:8888)
+
+Create the local secret file once (not committed):
 
 ```bash
+cp searxng/.env.example searxng/.env
+python3 -c "import secrets; print(secrets.token_hex(32))"
+# paste the printed value into searxng/.env as SEARXNG_SECRET=...
 cp .env.example .env
 ```
 
-`.env.example` contains:
+`.env` (project root) must contain:
 
 ```
 SEARXNG_URL=http://localhost:8888
 ```
 
-Point `SEARXNG_URL` at your own SearXNG instance. We will later run a private SearXNG instance locally on macOS and on a Linux DigitalOcean server. Do not commit `.env`.
+Start:
+
+```bash
+docker compose -f searxng/docker-compose.yml up -d
+```
+
+Check status:
+
+```bash
+docker compose -f searxng/docker-compose.yml ps
+```
+
+Stop:
+
+```bash
+docker compose -f searxng/docker-compose.yml down
+```
+
+`down` stops the containers. Named Docker volumes (`core-data`, `valkey-data`) keep cache/data unless you also pass `-v`.
 
 ### Run the search test
+
+With SearXNG running:
 
 ```bash
 source .venv/bin/activate
 python src/search_test.py "women's fashion boutique Mumbai"
 ```
 
-This sends the query to the configured SearXNG `/search` JSON endpoint and prints titles, URLs, and snippets. It does not fetch or scrape the result websites.
+This sends the query to the local SearXNG `/search` JSON endpoint and prints titles, URLs, and snippets. It does not fetch or scrape the result websites.
 
 ### Parse unit test (no network)
 
@@ -98,6 +126,11 @@ anazvara-boutique-scraper/
 │   ├── database.py
 │   ├── deduplication.py
 │   └── excel_export.py
+├── searxng/
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   └── core-config/
+│       └── settings.yml      # JSON output enabled; secrets stay in searxng/.env
 ├── tests/
 │   └── test_searxng_parse.py
 ├── .env.example
