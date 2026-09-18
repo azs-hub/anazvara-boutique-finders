@@ -98,6 +98,22 @@ class ContentExtractionTests(unittest.TestCase):
         self.assertIn("Mumbai", self.signals.city_mentions)
         self.assertIn("Bandra", self.signals.city_mentions)
 
+    def test_ecommerce_unit_price_is_not_an_address(self) -> None:
+        evidence = extract_page_evidence(
+            "<html><body><p>Unit price 18,000.00 per item. Quick View.</p></body></html>",
+            source_url="https://shop.example",
+            final_url="https://shop.example",
+        )
+        self.assertEqual(extract_business_signals(evidence).address_candidates, [])
+
+    def test_currency_product_text_is_not_an_address(self) -> None:
+        evidence = extract_page_evidence(
+            "<html><body><p>$25,700.00 LIGHT GOLD PRE ST COLLECTION</p></body></html>",
+            source_url="https://shop.example",
+            final_url="https://shop.example",
+        )
+        self.assertEqual(extract_business_signals(evidence).address_candidates, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -81,6 +81,6 @@ class BoutiqueDiscovery:
             NotImplementedError: Discovery is not implemented yet.
         """
         raise NotImplementedError(
-            "Discovery is not implemented in this increment. "
-            "The next step will add a free/public search provider."
+            "The city/quantity BoutiqueDiscovery workflow is not integrated yet. "
+            "Use the current SearXNG and Candidate modules for staged discovery."
         )

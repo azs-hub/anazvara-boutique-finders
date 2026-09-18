@@ -45,6 +45,16 @@ class UrlNormalizationTests(unittest.TestCase):
         )
         self.assertEqual(normalize_url(url), "https://example.com/shop?id=42")
 
+    def test_sorts_query_parameters_for_stable_deduplication(self) -> None:
+        self.assertEqual(
+            normalize_url("https://example.com/shop?z=2&a=1"),
+            "https://example.com/shop?a=1&z=2",
+        )
+
+    def test_malformed_port_is_rejected_without_raising(self) -> None:
+        self.assertIsNone(normalize_url("https://example.com:bad/shop"))
+        self.assertIsNone(normalize_url("https://example.com:99999/shop"))
+
     def test_same_domain_for_www_and_bare_host(self) -> None:
         self.assertEqual(extract_domain("https://www.example.com/about"), "example.com")
         self.assertEqual(extract_domain("https://example.com/contact"), "example.com")

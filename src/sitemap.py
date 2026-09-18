@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-from url_normalization import extract_domain, normalize_url
+from url_normalization import is_same_site, normalize_url
 
 MAX_SITEMAP_INDEX_LEVELS = 1
 MAX_CHILD_SITEMAPS = 5
@@ -68,8 +68,6 @@ def parse_sitemap_xml(text: str) -> SitemapParse:
         return SitemapParse(kind="index", locs=locs)
     if tag == "urlset":
         return SitemapParse(kind="urlset", locs=locs)
-    if locs:
-        return SitemapParse(kind="urlset", locs=locs)
     return SitemapParse(kind="invalid")
 
 
@@ -97,12 +95,26 @@ def discover_sitemap_urls(fetcher, root_url: str) -> SitemapDiscovery:
     children_left = [MAX_CHILD_SITEMAPS]
     primary = robots_seeds[:3] if robots_seeds else fallbacks
     parsed_ok = _ingest_sitemap_docs(
-        fetcher, root_url, primary, result, fetched_docs, page_locs, children_left
+        fetcher,
+        root_url,
+        primary,
+        result,
+        fetched_docs,
+        page_locs,
+        children_left,
+        stop_after_locs=not bool(robots_seeds),
     )
-    if not parsed_ok and robots_seeds:
+    if not page_locs and robots_seeds:
         parsed_ok = _ingest_sitemap_docs(
-            fetcher, root_url, fallbacks, result, fetched_docs, page_locs, children_left
-        )
+            fetcher,
+            root_url,
+            fallbacks,
+            result,
+            fetched_docs,
+            page_locs,
+            children_left,
+            stop_after_locs=True,
+        ) or parsed_ok
 
     if not parsed_ok:
         return result
@@ -151,6 +163,8 @@ def _ingest_sitemap_docs(
     fetched_docs: set[str],
     page_locs: list[str],
     children_left: list[int],
+    *,
+    stop_after_locs: bool,
 ) -> bool:
     parsed_ok = False
     for seed, source in seeds:
@@ -164,23 +178,25 @@ def _ingest_sitemap_docs(
             result.source = source
         if parsed.kind == "urlset":
             page_locs.extend(parsed.locs)
-        elif parsed.kind == "index":
+        elif parsed.kind == "index" and MAX_SITEMAP_INDEX_LEVELS >= 1:
             for child in parsed.locs:
                 if children_left[0] <= 0:
                     break
                 if not _same_registrable_site(root_url, child):
                     continue
+                # Every attempted child consumes the budget, including 404,
+                # timeout, and malformed XML responses.
+                children_left[0] -= 1
+                result.child_sitemaps_fetched += 1
                 child_parsed = _fetch_and_parse(fetcher, child, result, fetched_docs)
                 if child_parsed is None:
                     continue
-                children_left[0] -= 1
-                result.child_sitemaps_fetched += 1
                 if child_parsed.kind == "urlset":
                     page_locs.extend(child_parsed.locs)
                 # Nested indexes are ignored (max index depth = 1).
-        if parsed.kind == "urlset":
+        if stop_after_locs and parsed.kind == "urlset" and parsed.locs:
             break
-        if parsed.kind == "index":
+        if stop_after_locs and parsed.kind == "index":
             break
     return parsed_ok
 
@@ -204,11 +220,7 @@ def _fetch_and_parse(fetcher, url: str, result: SitemapDiscovery, fetched: set[s
 
 
 def _same_registrable_site(root_url: str, other: str) -> bool:
-    root = extract_domain(root_url)
-    link = extract_domain(other)
-    if not root or not link:
-        return False
-    return link == root or link.endswith("." + root)
+    return is_same_site(root_url, other)
 
 
 def _local_name(tag: str) -> str:

@@ -17,6 +17,7 @@ from business_candidates import (
     PhysicalStore,
     Relevance,
     identify_business_candidates,
+    merge_in_memory_duplicates,
 )
 from candidates import Candidate
 from classification import ResultType
@@ -137,6 +138,32 @@ class BusinessCandidateTests(unittest.TestCase):
         self.assertEqual(rows[0].physical_store, PhysicalStore.UNKNOWN)
         self.assertEqual(rows[0].confidence, Confidence.LOW)
 
+    def test_ecommerce_chrome_titles_are_never_business_names(self) -> None:
+        for title in (
+            "Item added to your cart",
+            "Order Summary",
+            "Shopping Cart",
+            "My Account",
+            "Login",
+            "Checkout",
+            "Shop Now",
+            "Country/region",
+            "Follow On Instagram",
+            "Women's Ethnic Clothing Online",
+            "Media Coverage",
+            "Franchisee",
+            "Shipping",
+            "Create Free Account Now!",
+            "Disclaimer",
+        ):
+            with self.subTest(title=title):
+                row = identify_business_candidates(
+                    _candidate(title=title),
+                    _evidence(title=title),
+                    BusinessSignals(),
+                )[0]
+                self.assertEqual(row.business_name, UNKNOWN)
+
     def test_directory_extracts_multiple_businesses(self) -> None:
         rows = identify_business_candidates(
             _candidate(
@@ -162,6 +189,41 @@ class BusinessCandidateTests(unittest.TestCase):
         self.assertEqual(names, {"KALKI Fashion", "Aashni + Co", "Flaunt It Boutique"})
         self.assertTrue(all(row.source_type == "DIRECTORY" for row in rows))
         self.assertTrue(all(row.evidence["name_source"] == "anchor_text" for row in rows))
+
+    def test_plain_boutiques_in_city_title_is_treated_as_roundup(self) -> None:
+        rows = identify_business_candidates(
+            _candidate(title="Boutiques in Mumbai"),
+            _evidence(
+                title="Boutiques in Mumbai",
+                text="A guide to fashion boutiques and stores.",
+                links=[_link("https://rozina.example/", "Rozina")],
+            ),
+            BusinessSignals(),
+        )
+        self.assertEqual([row.business_name for row in rows], ["Rozina"])
+        self.assertNotEqual(rows[0].website, "https://example.com")
+
+    def test_search_title_detects_roundup_hidden_by_page_chrome(self) -> None:
+        rows = identify_business_candidates(
+            _candidate(
+                title="Top Fashion Boutiques Mumbai",
+                url="https://blog.example.com/list",
+                normalized_url="https://blog.example.com/list",
+                domain="blog.example.com",
+            ),
+            _evidence(
+                title="Create Free Account Now!",
+                source_url="https://blog.example.com/list",
+                final_url="https://blog.example.com/list",
+                domain="blog.example.com",
+                links=[
+                    _link("https://example.com/", "Publisher Shop"),
+                    _link("https://rozina.example/", "Rozina"),
+                ],
+            ),
+            BusinessSignals(),
+        )
+        self.assertEqual([row.business_name for row in rows], ["Rozina"])
 
     def test_directory_excludes_navigation(self) -> None:
         rows = identify_business_candidates(
@@ -326,6 +388,55 @@ class BusinessCandidateTests(unittest.TestCase):
         self.assertEqual(rows[0].business_name, "KALKI Fashion")
         self.assertIn("merged_source_urls", rows[0].evidence)
 
+    def test_duplicate_merge_preserves_contacts_and_evidence(self) -> None:
+        left = identify_business_candidates(
+            _candidate(title="Rozina"),
+            _evidence(title="Rozina"),
+            BusinessSignals(
+                phones=["1111111111"],
+                emails=["first@rozina.example"],
+            ),
+        )[0]
+        right = identify_business_candidates(
+            _candidate(title="Rozina"),
+            _evidence(title="Rozina", source_url="https://example.com/contact"),
+            BusinessSignals(
+                phones=["2222222222"],
+                emails=["second@rozina.example"],
+            ),
+        )[0]
+        right.source_url = "https://example.com/contact"
+        merged = merge_in_memory_duplicates([left, right])[0]
+        self.assertEqual(merged.phone, "1111111111")
+        self.assertIn("2222222222", merged.extra_phones)
+        self.assertIn("second@rozina.example", merged.extra_emails)
+        self.assertEqual(
+            merged.evidence["merged_source_urls"],
+            ["https://example.com/contact"],
+        )
+        self.assertEqual(len(merged.evidence["merged_evidence"]), 1)
+
+    def test_in_memory_duplicates_can_match_by_phone(self) -> None:
+        first = identify_business_candidates(
+            _candidate(title="First Boutique"),
+            _evidence(title="First Boutique"),
+            BusinessSignals(phones=["+91 98765 43210"]),
+        )[0]
+        second = identify_business_candidates(
+            _candidate(title="Second Boutique", url="https://second.example"),
+            _evidence(
+                title="Second Boutique",
+                source_url="https://second.example",
+                final_url="https://second.example",
+                domain="second.example",
+            ),
+            BusinessSignals(phones=["919876543210"]),
+        )[0]
+        first.website = None
+        second.website = None
+        merged = merge_in_memory_duplicates([first, second])
+        self.assertEqual(len(merged), 1)
+
     def test_provenance_preserved(self) -> None:
         rows = identify_business_candidates(
             _candidate(
@@ -354,6 +465,23 @@ class BusinessCandidateTests(unittest.TestCase):
             BusinessSignals(phones=["+91 98765 43210"]),
         )
         self.assertEqual(rows[0].physical_store, PhysicalStore.UNKNOWN)
+
+    def test_city_is_not_taken_from_a_different_address(self) -> None:
+        row = identify_business_candidates(
+            _candidate(title="Rozina"),
+            _evidence(
+                title="Rozina",
+                text="Visit our stores. Women's clothing boutique.",
+            ),
+            BusinessSignals(
+                address_candidates=[
+                    "Address: 125 Ledbury Road, London W11 2AQ",
+                    "12 Linking Road, Mumbai 400050",
+                ],
+            ),
+        )[0]
+        self.assertEqual(row.address, "Address: 125 Ledbury Road, London W11 2AQ")
+        self.assertEqual(row.city, UNKNOWN)
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ Directory and article results are **kept**. They are not discarded; a later step
 
 ### Public page fetch and evidence
 
-`src/fetcher.py` performs a single HTTP GET with `requests` (timeout 15s, 0 retries by default, 1s delay between requests, 1 MiB HTML cap). `robots.txt` is respected; 403/timeout/connection failures are recorded, not raised.
+`src/fetcher.py` performs bounded HTTP GETs with `requests` (timeout 15s, 0 retries by default, 1s delay between page requests, 1 MiB response cap). It retrieves and caches `robots.txt` per origin before allowed page requests. HTTP errors, timeouts, and connection failures are recorded, not raised.
 
 `src/content_extraction.py` uses BeautifulSoup to collect `PageEvidence` (title, description, visible text, headings, absolute links) and `BusinessSignals` (emails, phones, social/WhatsApp URLs, address-like snippets, city mentions). These are **signals only** — not boutique identification.
 
@@ -254,6 +254,7 @@ anazvara-boutique-scraper/
 │   ├── test_fetcher.py
 │   ├── test_content_extraction.py
 │   ├── test_business_candidates.py
+│   ├── test_deduplication.py
 │   └── test_enrichment.py
 ├── .env.example
 ├── .gitignore

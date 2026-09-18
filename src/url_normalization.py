@@ -55,6 +55,8 @@ def _parse_http_url(url: str) -> tuple[ParseResult, str] | None:
         return None
     try:
         host = (parsed.hostname or "").lower().strip()
+        # Access validates malformed and out-of-range ports.
+        parsed.port
     except ValueError:
         return None
     if not host or " " in host:
@@ -114,11 +116,30 @@ def normalize_url(url: str) -> str | None:
     if path == "/":
         path = ""
 
-    query_pairs = [
-        (key, value)
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if not _is_tracking_param(key)
-    ]
+    query_pairs = sorted(
+        [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if not _is_tracking_param(key)
+        ]
+    )
     query = urlencode(query_pairs, doseq=True)
 
     return urlunparse((scheme, netloc, path, "", query, ""))
+
+
+def is_same_site(root_url: str, other_url: str) -> bool:
+    """Compare a site with its bare parent or child subdomain.
+
+    This intentionally does not guess registrable domains from unrelated
+    sibling subdomains without a Public Suffix List.
+    """
+    root = extract_domain(root_url)
+    other = extract_domain(other_url)
+    if not root or not other:
+        return False
+    return (
+        other == root
+        or other.endswith("." + root)
+        or root.endswith("." + other)
+    )

@@ -17,19 +17,14 @@ import re
 from urllib.parse import urlparse
 
 from scraper import BoutiqueRecord
+from url_normalization import extract_domain
 
 
 def normalize_website_domain(website: str | None) -> str | None:
     """Return a lowercase hostname without a leading ``www.`` prefix."""
     if not website or not str(website).strip():
         return None
-    value = str(website).strip()
-    if "://" not in value:
-        value = f"https://{value}"
-    host = urlparse(value).netloc.lower()
-    if host.startswith("www."):
-        host = host[4:]
-    return host or None
+    return extract_domain(str(website).strip())
 
 
 def normalize_instagram(instagram: str | None) -> str | None:
@@ -37,8 +32,15 @@ def normalize_instagram(instagram: str | None) -> str | None:
     if not instagram or not str(instagram).strip():
         return None
     value = str(instagram).strip()
-    if "instagram.com" in value.lower():
-        path = urlparse(value if "://" in value else f"https://{value}").path
+    lower = value.lower()
+    if "://" in value or lower.startswith(("instagram.com/", "www.instagram.com/")):
+        parsed_value = value if "://" in value else f"https://{value}"
+        domain = extract_domain(parsed_value)
+        if not domain or not (
+            domain == "instagram.com" or domain.endswith(".instagram.com")
+        ):
+            return None
+        path = urlparse(parsed_value).path
         value = path.strip("/")
     value = value.lstrip("@").strip().lower()
     value = value.split("/")[0]
@@ -46,15 +48,13 @@ def normalize_instagram(instagram: str | None) -> str | None:
 
 
 def normalize_phone(phone: str | None) -> str | None:
-    """Return digits-only phone, keeping a leading ``+`` country code if present."""
+    """Return a digits-only phone identity key."""
     if not phone or not str(phone).strip():
         return None
     raw = str(phone).strip()
     digits = re.sub(r"\D", "", raw)
     if not digits:
         return None
-    if raw.startswith("+"):
-        return f"+{digits}"
     return digits
 
 
@@ -64,7 +64,12 @@ def normalize_name_city(name: str | None, city: str | None) -> str | None:
         return None
     compact_name = re.sub(r"\s+", " ", str(name).strip().lower())
     compact_city = re.sub(r"\s+", " ", str(city).strip().lower())
-    if not compact_name or not compact_city:
+    if (
+        not compact_name
+        or not compact_city
+        or compact_name == "unknown"
+        or compact_city == "unknown"
+    ):
         return None
     return f"{compact_name}|{compact_city}"
 

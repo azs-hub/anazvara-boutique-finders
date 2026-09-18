@@ -153,6 +153,9 @@ class EnrichmentHelperTests(unittest.TestCase):
         self.assertTrue(
             is_same_site("https://example.com/shop", "https://www.example.com/contact")
         )
+        self.assertTrue(
+            is_same_site("https://shop.example.com/", "https://example.com/contact")
+        )
 
     def test_external_links_rejected(self) -> None:
         self.assertFalse(
@@ -184,6 +187,41 @@ class EnrichmentHelperTests(unittest.TestCase):
         )
         self.assertEqual(selected[0], "https://rozina.example/stores")
 
+    def test_store_page_for_different_city_is_rejected(self) -> None:
+        selected = select_enrichment_urls(
+            [
+                _link(
+                    "https://stores.example.com/delhi/reach-us",
+                    "Reach Delhi Store",
+                ),
+                _link(
+                    "https://stores.example.com/mumbai/reach-us",
+                    "Reach Mumbai Store",
+                ),
+            ],
+            "https://stores.example.com/mumbai/home",
+        )
+        self.assertEqual(
+            selected,
+            ["https://stores.example.com/mumbai/reach-us"],
+        )
+
+    def test_specific_store_page_without_current_city_is_rejected(self) -> None:
+        selected = select_enrichment_urls(
+            [
+                _link(
+                    "https://stores.example.com/indore/reachus",
+                    "Reach Store",
+                ),
+                _link(
+                    "https://stores.example.com/our-stores",
+                    "Our Stores",
+                ),
+            ],
+            "https://stores.example.com/mumbai/home",
+        )
+        self.assertEqual(selected, ["https://stores.example.com/our-stores"])
+
     def test_about_pages_prioritized(self) -> None:
         selected = select_enrichment_urls(
             [
@@ -201,8 +239,32 @@ class EnrichmentHelperTests(unittest.TestCase):
                 _link("https://rozina.example/checkout", "Checkout"),
                 _link("https://rozina.example/login", "Login"),
                 _link("https://rozina.example/products/dress", "Shop Dresses"),
+                _link(
+                    "https://rozina.example/articles/boutiques-in-delhi",
+                    "Boutiques",
+                ),
             ],
             "https://rozina.example",
+        )
+        self.assertEqual(selected, [])
+
+    def test_whitespace_only_path_alias_is_rejected(self) -> None:
+        selected = select_enrichment_urls(
+            [_link("https://rozina.example/contact/%20", "Contact")],
+            "https://rozina.example",
+        )
+        self.assertEqual(selected, [])
+
+    def test_static_asset_and_parent_homepage_are_rejected(self) -> None:
+        selected = select_enrichment_urls(
+            [
+                _link(
+                    "https://blog.example.com/uploads/about-our-story.png",
+                    "Our Story",
+                ),
+                _link("https://example.com/", "Shop Example"),
+            ],
+            "https://blog.example.com/article",
         )
         self.assertEqual(selected, [])
 
@@ -316,6 +378,49 @@ class EnrichmentFetchTests(unittest.TestCase):
         enrich_candidate(fetcher, _candidate())
         self.assertFalse(any("secret-second" in url for url in fetcher.fetched_urls))
 
+    def test_external_redirect_is_not_accepted_as_enrichment_evidence(self) -> None:
+        redirected = FetchResult(
+            requested_url="https://rozina.example/contact",
+            final_url="https://external.example/contact",
+            status_code=200,
+            content_type="text/html",
+            html=CONTACT_HTML,
+            error=None,
+            fetched=True,
+            elapsed_seconds=0.01,
+        )
+        fetcher = FakeFetcher(
+            {
+                "https://rozina.example": _ok(
+                    "https://rozina.example",
+                    "<html><title>Home</title><a href='/contact'>Contact</a></html>",
+                ),
+                "https://rozina.example/contact": redirected,
+            }
+        )
+        result = enrich_candidate(fetcher, _candidate())
+        self.assertIn("https://rozina.example/contact", result.failed_urls)
+        self.assertFalse(
+            any(page.final_url == "https://external.example/contact" for page in result.pages)
+        )
+
+    def test_shop_page_does_not_replace_homepage_as_canonical_url(self) -> None:
+        home = extract_page_evidence(
+            "<html><title>Rozina</title></html>",
+            source_url="https://rozina.example",
+            final_url="https://www.rozina.example/",
+        )
+        shop = extract_page_evidence(
+            "<html><title>Shop</title></html>",
+            source_url="https://rozina.example/shop",
+            final_url="https://rozina.example/shop",
+        )
+        combined = EnrichedEvidence(
+            root_url="https://rozina.example",
+            pages=[home, shop],
+        ).as_page_evidence()
+        self.assertEqual(combined.final_url, "https://www.rozina.example/")
+
 
 class EnrichmentIdentificationTests(unittest.TestCase):
     def test_about_name_beats_generic_homepage(self) -> None:
@@ -343,6 +448,48 @@ class EnrichmentIdentificationTests(unittest.TestCase):
         )
         self.assertEqual(rows[0].business_name, "Rozina")
         self.assertIn("about", rows[0].evidence.get("name_source", ""))
+
+    def test_about_page_label_is_not_part_of_business_name(self) -> None:
+        home = extract_page_evidence(
+            "<html><title>Home</title></html>",
+            source_url="https://rozina.example",
+            final_url="https://rozina.example",
+        )
+        about = extract_page_evidence(
+            "<html><title>About Rozina</title><h1>About Rozina</h1></html>",
+            source_url="https://rozina.example/about",
+            final_url="https://rozina.example/about",
+        )
+        enriched = EnrichedEvidence(
+            root_url="https://rozina.example",
+            pages=[home, about],
+        )
+        row = identify_business_candidates(
+            _candidate(), home, extract_signals(home), enriched=enriched
+        )[0]
+        self.assertEqual(row.business_name, "Rozina")
+
+    def test_about_page_descriptive_suffix_is_not_part_of_name(self) -> None:
+        home = extract_page_evidence(
+            "<html><title>Home</title></html>",
+            source_url="https://rozina.example",
+            final_url="https://rozina.example",
+        )
+        about = extract_page_evidence(
+            "<html><title>Rozina: Explore Our Story &amp; Values</title></html>",
+            source_url="https://rozina.example/about",
+            final_url="https://rozina.example/about",
+        )
+        row = identify_business_candidates(
+            _candidate(),
+            home,
+            extract_signals(home),
+            enriched=EnrichedEvidence(
+                root_url="https://rozina.example",
+                pages=[home, about],
+            ),
+        )[0]
+        self.assertEqual(row.business_name, "Rozina")
 
     def test_ecommerce_chrome_rejected_as_name(self) -> None:
         home = extract_page_evidence(
@@ -485,6 +632,34 @@ class SitemapHelperTests(unittest.TestCase):
         self.assertIn("https://rozina.example/contact", discovery.urls)
         self.assertNotIn("https://rozina.example/sitemap_index.xml", fetcher.fetched_urls)
 
+    def test_multiple_robots_sitemaps_are_inspected_within_seed_limit(self) -> None:
+        products = (
+            '<?xml version="1.0"?><urlset '
+            'xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            "<url><loc>https://rozina.example/products/dress</loc></url>"
+            "</urlset>"
+        )
+        fetcher = FakeFetcher(
+            {
+                "https://rozina.example/products-sitemap.xml": _ok(
+                    "https://rozina.example/products-sitemap.xml",
+                    products,
+                    content_type="application/xml",
+                ),
+                "https://rozina.example/pages-sitemap.xml": _ok(
+                    "https://rozina.example/pages-sitemap.xml",
+                    CHILD_URLSET,
+                    content_type="application/xml",
+                ),
+            },
+            robots_sitemaps=[
+                "https://rozina.example/products-sitemap.xml",
+                "https://rozina.example/pages-sitemap.xml",
+            ],
+        )
+        discovery = discover_sitemap_urls(fetcher, "https://rozina.example")
+        self.assertIn("https://rozina.example/contact-us", discovery.urls)
+
     def test_sitemap_index_handling(self) -> None:
         responses = {
             "https://rozina.example/sitemap.xml": _ok(
@@ -522,6 +697,39 @@ class SitemapHelperTests(unittest.TestCase):
         self.assertFalse(discovery.discovered)
         self.assertEqual(discovery.urls, [])
 
+    def test_empty_sitemap_falls_back_to_sitemap_index(self) -> None:
+        empty = (
+            '<?xml version="1.0"?><urlset '
+            'xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+        )
+        fetcher = FakeFetcher(
+            {
+                "https://rozina.example/sitemap.xml": _ok(
+                    "https://rozina.example/sitemap.xml",
+                    empty,
+                    content_type="application/xml",
+                ),
+                "https://rozina.example/sitemap_index.xml": _ok(
+                    "https://rozina.example/sitemap_index.xml",
+                    INDEX_XML,
+                    content_type="application/xml",
+                ),
+                "https://rozina.example/sitemap-pages.xml": _ok(
+                    "https://rozina.example/sitemap-pages.xml",
+                    CHILD_URLSET,
+                    content_type="application/xml",
+                ),
+            }
+        )
+        discovery = discover_sitemap_urls(fetcher, "https://rozina.example")
+        self.assertIn("https://rozina.example/contact-us", discovery.urls)
+
+    def test_unknown_xml_root_is_rejected(self) -> None:
+        parsed = parse_sitemap_xml(
+            "<html><loc>https://rozina.example/contact</loc></html>"
+        )
+        self.assertEqual(parsed.kind, "invalid")
+
     def test_product_urls_rejected(self) -> None:
         self.assertEqual(
             url_enrichment_score("https://rozina.example/products/dress", "https://rozina.example"),
@@ -529,6 +737,13 @@ class SitemapHelperTests(unittest.TestCase):
         )
         self.assertEqual(
             url_enrichment_score("https://rozina.example/p/sku-1", "https://rozina.example"),
+            0,
+        )
+        self.assertEqual(
+            url_enrichment_score(
+                "https://rozina.example/sitemaps/our-story.xml",
+                "https://rozina.example",
+            ),
             0,
         )
 
@@ -677,6 +892,30 @@ class SitemapHelperTests(unittest.TestCase):
         self.assertIn("https://rozina.example/sitemap-nested.xml", fetcher.fetched_urls)
         self.assertNotIn("https://rozina.example/sitemap-pages.xml", fetcher.fetched_urls)
         self.assertNotIn("https://rozina.example/secret-from-nested-index", discovery.urls)
+
+    def test_failed_children_still_consume_five_child_limit(self) -> None:
+        children = "".join(
+            f"<sitemap><loc>https://rozina.example/missing-{index}.xml</loc></sitemap>"
+            for index in range(10)
+        )
+        index_xml = (
+            '<?xml version="1.0"?>'
+            '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            f"{children}</sitemapindex>"
+        )
+        fetcher = FakeFetcher(
+            {
+                "https://rozina.example/sitemap.xml": _ok(
+                    "https://rozina.example/sitemap.xml",
+                    index_xml,
+                    content_type="application/xml",
+                )
+            }
+        )
+        discovery = discover_sitemap_urls(fetcher, "https://rozina.example")
+        missing_fetches = [url for url in fetcher.fetched_urls if "/missing-" in url]
+        self.assertEqual(len(missing_fetches), 5)
+        self.assertEqual(discovery.child_sitemaps_fetched, 5)
 
 
 def extract_signals(page):

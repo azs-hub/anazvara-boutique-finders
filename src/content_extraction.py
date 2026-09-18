@@ -58,6 +58,11 @@ ADDRESS_HINT_RE = re.compile(
     r"pincode|pin\s*code)\b",
     re.IGNORECASE,
 )
+ECOMMERCE_ADDRESS_NOISE_RE = re.compile(
+    r"\b(unit\s+price|regular\s+price|quick\s+view|add(?:ed)?\s+to\s+cart)\b"
+    r"|(?:₹|\$|\brs\.?)\s*[\d,]+(?:\.\d{2})?",
+    re.IGNORECASE,
+)
 CITY_NAMES = (
     "Mumbai",
     "Delhi",
@@ -390,6 +395,8 @@ def _address_candidates(text: str) -> list[str]:
     for chunk in re.split(r"(?<=[.!?])\s+|\n+", text):
         piece = chunk.strip()
         if len(piece) < 12 or len(piece) > 180:
+            continue
+        if ECOMMERCE_ADDRESS_NOISE_RE.search(piece):
             continue
         has_pin = bool(PINCODE_RE.search(piece))
         has_hint = bool(ADDRESS_HINT_RE.search(piece))

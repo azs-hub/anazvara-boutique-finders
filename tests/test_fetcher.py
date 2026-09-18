@@ -129,6 +129,25 @@ class FetcherTests(unittest.TestCase):
         self.session.get.assert_not_called()
         self.assertEqual(urlparse(robots_url).netloc, "private.example")
 
+    def test_robots_request_uses_configured_timeout(self) -> None:
+        robots = _response(
+            "https://shop.example/robots.txt",
+            content=b"User-agent: *\nAllow: /\n",
+            content_type="text/plain",
+        )
+        robots.text = "User-agent: *\nAllow: /\n"
+        page = _response("https://shop.example/")
+        self.session.get.side_effect = [robots, page]
+        fetcher = PageFetcher(
+            session=self.session,
+            respect_robots=True,
+            delay_seconds=0,
+            timeout=2,
+        )
+        result = fetcher.fetch("https://shop.example/")
+        self.assertTrue(result.fetched)
+        self.assertEqual(self.session.get.call_args_list[0].kwargs["timeout"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -262,6 +262,8 @@ class PageFetcher:
 
     def robots_sitemap_urls(self, page_url: str) -> list[str]:
         """Return Sitemap: URLs from robots.txt. Failures yield an empty list."""
+        from sitemap import parse_robots_sitemaps
+
         parsed = urlparse(page_url if "://" in page_url else f"https://{page_url}")
         if not parsed.scheme or not parsed.netloc:
             return []
@@ -272,18 +274,7 @@ class PageFetcher:
             else:
                 result = self.fetch(robots_url, allow_xml=True)
                 self._robots_text[robots_url] = result.html or ""
-        return _parse_robots_sitemap_lines(self._robots_text.get(robots_url, ""))
-
-
-def _parse_robots_sitemap_lines(text: str) -> list[str]:
-    found: list[str] = []
-    for raw in (text or "").splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if line.lower().startswith("sitemap:"):
-            value = line.split(":", 1)[1].strip()
-            if value:
-                found.append(value)
-    return found
+        return parse_robots_sitemaps(self._robots_text.get(robots_url, ""))
 
 
 def _target_url(target: Candidate | str) -> str:

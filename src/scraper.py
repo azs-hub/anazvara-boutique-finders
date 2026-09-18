@@ -4,8 +4,10 @@ Uses ordinary HTTP requests and BeautifulSoup. Playwright is out of scope
 until testing shows it is required.
 
 Page fetching and evidence extraction live in ``fetcher.py`` and
-``content_extraction.py``. This module still holds ``BoutiqueRecord`` for a
-later identification step. ``WebsiteScraper.scrape`` is not implemented yet.
+``content_extraction.py``; deterministic identification lives in
+``business_candidates.py``. This module retains the early ``BoutiqueRecord``
+persistence/export model. ``WebsiteScraper.scrape`` is intentionally not
+integrated with that staged pipeline yet.
 """
 
 from __future__ import annotations
@@ -62,8 +64,8 @@ class WebsiteScraper:
             NotImplementedError: Scraping is not implemented yet.
         """
         raise NotImplementedError(
-            "Website scraping is not implemented in this increment. "
-            "The next step will fetch pages with requests and BeautifulSoup."
+            "WebsiteScraper is an early reserved interface and is not integrated. "
+            "Use fetcher/content_extraction/business_candidates for the current pipeline."
         )
 
 

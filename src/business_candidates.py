@@ -22,9 +22,9 @@ from classification import (
     _host_matches,
 )
 from content_extraction import CITY_NAMES, BusinessSignals, ExtractedLink, PageEvidence
-from deduplication import normalize_instagram
+from deduplication import normalize_instagram, normalize_phone
 from enrichment import EnrichedEvidence, classify_internal_page
-from url_normalization import extract_domain, normalize_url
+from url_normalization import extract_domain, is_same_site, normalize_url
 
 UNKNOWN = "UNKNOWN"
 MAX_DIRECTORY_BUSINESSES = 40
@@ -36,6 +36,7 @@ GENERIC_NAMES = {
     "home",
     "welcome",
     "shop",
+    "shop now",
     "store",
     "stores",
     "boutique",
@@ -63,6 +64,13 @@ GENERIC_NAMES = {
     "our stores",
     "order summary",
     "shopping cart",
+    "country/region",
+    "follow on instagram",
+    "media coverage",
+    "franchisee",
+    "shipping",
+    "create free account now",
+    "disclaimer",
 }
 
 NAV_ANCHORS = {
@@ -306,7 +314,7 @@ def identify_business_from_page(
         home = _homepage_from_enriched(enriched)
         if home and home.title:
             homepage_title = home.title.strip()
-    if _is_roundup_title(homepage_title):
+    if _is_roundup_title(homepage_title) or _is_roundup_title(candidate.title):
         listed = _businesses_from_external_links(
             candidate,
             page_evidence,
@@ -483,6 +491,9 @@ def _duplicate_key(row: BusinessCandidate) -> tuple[str, str] | None:
     instagram = normalize_instagram(row.instagram)
     if instagram:
         return ("instagram", instagram)
+    phone = normalize_phone(row.phone)
+    if phone:
+        return ("phone", phone)
     name = (row.business_name or "").strip().lower()
     city = (row.city or "").strip().lower()
     if name and name != UNKNOWN.lower() and city and city != UNKNOWN.lower():
@@ -496,18 +507,28 @@ def _merge_pair(
     evidence = dict(left.evidence)
     extra_sources = list(evidence.get("merged_source_urls") or [])
     extra_sources.append(right.source_url)
-    evidence["merged_source_urls"] = extra_sources
+    extra_sources.extend((right.evidence or {}).get("merged_source_urls") or [])
+    evidence["merged_source_urls"] = list(dict.fromkeys(extra_sources))
+    merged_evidence = list(evidence.get("merged_evidence") or [])
+    merged_evidence.append(dict(right.evidence or {}))
+    evidence["merged_evidence"] = merged_evidence
     left_signals = list(evidence.get("signals") or [])
     right_signals = list((right.evidence or {}).get("signals") or [])
     evidence["signals"] = list(dict.fromkeys(left_signals + right_signals))
+    phones = _unique_optional(
+        [left.phone, *left.extra_phones, right.phone, *right.extra_phones]
+    )
+    emails = _unique_optional(
+        [left.email, *left.extra_emails, right.email, *right.extra_emails]
+    )
     return BusinessCandidate(
         business_name=_prefer_known(left.business_name, right.business_name),
         website=left.website or right.website,
         instagram=left.instagram or right.instagram,
         facebook=left.facebook or right.facebook,
         whatsapp=left.whatsapp or right.whatsapp,
-        phone=left.phone or right.phone,
-        email=left.email or right.email,
+        phone=_first(phones),
+        email=_first(emails),
         address=left.address or right.address,
         city=_prefer_known(left.city, right.city),
         source_url=left.source_url,
@@ -528,8 +549,8 @@ def _merge_pair(
         ),
         evidence=evidence,
         confidence=_higher_confidence(left.confidence, right.confidence),
-        extra_phones=list(dict.fromkeys(left.extra_phones + right.extra_phones)),
-        extra_emails=list(dict.fromkeys(left.extra_emails + right.extra_emails)),
+        extra_phones=phones[1:],
+        extra_emails=emails[1:],
     )
 
 
@@ -549,12 +570,17 @@ def _owner_candidate(
     fashion = _fashion_relevance(haystack, business_type)
     women = _women_fashion_relevance(haystack)
     physical = _physical_store(haystack, business_signals)
-    city = _city_for_owner(page_evidence, business_signals, physical)
+    address = _first(business_signals.address_candidates)
+    city = _city_for_owner(
+        page_evidence,
+        business_signals,
+        physical,
+        primary_address=address,
+    )
     instagram = _pick_instagram(business_signals)
     facebook = _pick_facebook(business_signals)
     email = _first(business_signals.emails)
     phone = _first(business_signals.phones)
-    address = _first(business_signals.address_candidates)
     signals = list(extra_signals or []) + type_signals
     if name != UNKNOWN:
         signals.append("business_name")
@@ -653,7 +679,7 @@ def _website_business_name_enriched(
             (page.title or "", f"{source}_title"),
             (_first(page.headings) or "", f"{source}_heading"),
         ):
-            cleaned = _clean_name(raw)
+            cleaned = _clean_contextual_name(raw, source)
             if cleaned != UNKNOWN:
                 return cleaned, kind
     return _website_business_name(candidate, enriched.as_page_evidence())
@@ -695,6 +721,20 @@ def _clean_name(raw: str) -> str:
     return text
 
 
+def _clean_contextual_name(raw: str, source: str) -> str:
+    """Remove page-label chrome only when the page role supports it."""
+    text = raw
+    if source == "about_page":
+        text = re.sub(r"^\s*about(?:\s+us)?\s*[:\-–—]?\s+", "", text, flags=re.IGNORECASE)
+        if ":" in text:
+            left = text.split(":", 1)[0].strip()
+            if 1 <= len(left.split()) <= 6 and _clean_name(left) != UNKNOWN:
+                text = left
+    elif source == "contact_page":
+        text = re.sub(r"^\s*contact(?:\s+us)?\s*[:\-–—]?\s+", "", text, flags=re.IGNORECASE)
+    return _clean_name(text)
+
+
 def _looks_generic(text: str) -> bool:
     lowered = text.strip().lower().rstrip("!.")
     if lowered in GENERIC_NAMES:
@@ -706,6 +746,10 @@ def _looks_generic(text: str) -> bool:
     if re.search(r"\bboutiques in\b", lowered):
         return True
     if "download" in lowered and "app" in lowered:
+        return True
+    if "follow" in lowered and "instagram" in lowered:
+        return True
+    if re.fullmatch(r"women'?s\s+[\w\s-]*clothing\s+online", lowered):
         return True
     if lowered.startswith(("http://", "https://", "www.")):
         return True
@@ -719,7 +763,10 @@ def _is_roundup_title(text: str) -> bool:
         return False
     if ROUNDUP_TITLE_RE.search(text):
         return True
-    return bool(re.search(r"\b\d+\s+best\b", text, re.IGNORECASE))
+    return bool(
+        re.search(r"\b\d+\s+best\b", text, re.IGNORECASE)
+        or re.search(r"\bboutiques?\s+in\s+[A-Za-z]", text, re.IGNORECASE)
+    )
 
 
 def _classify_business_type(
@@ -799,14 +846,21 @@ def _city_for_owner(
     evidence: PageEvidence,
     signals: BusinessSignals,
     physical: PhysicalStore,
+    *,
+    primary_address: str | None,
 ) -> str:
     address_cities: list[str] = []
     for snippet in signals.address_candidates:
         address_cities.extend(_cities_in_text(snippet))
     unique_address = list(dict.fromkeys(address_cities))
-    if len(unique_address) == 1:
-        return unique_address[0]
     if len(unique_address) > 1:
+        return UNKNOWN
+    primary_cities = _cities_in_text(primary_address or "")
+    if len(primary_cities) == 1:
+        if not unique_address or primary_cities[0] == unique_address[0]:
+            return primary_cities[0]
+    if signals.address_candidates:
+        # Do not assign a city from a different address than the one retained.
         return UNKNOWN
     title_cities = _cities_in_text(evidence.title or "")
     if len(title_cities) == 1 and physical is PhysicalStore.YES:
@@ -915,7 +969,7 @@ def _usable_business_link(
         return False
     target = link.normalized_url or link.url
     domain = extract_domain(target)
-    if not domain or domain == source_domain:
+    if not domain or (source_domain and is_same_site(source_domain, domain)):
         return False
     if _host_matches(domain, SKIP_EXTRACT_DOMAINS):
         return False
@@ -1027,6 +1081,10 @@ def _haystack(candidate: Candidate, evidence: PageEvidence) -> str:
 
 def _first(values: list[str]) -> str | None:
     return values[0] if values else None
+
+
+def _unique_optional(values: list[str | None]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value))
 
 
 def _has_phrase(text: str, phrase: str) -> bool:

@@ -1,14 +1,15 @@
-"""Depth-1 same-domain enrichment for WEBSITE candidates.
+"""Depth-1 same-site enrichment for WEBSITE candidates.
 
-Fetches the homepage plus at most three Contact / Stores / About pages.
-Does not recurse, does not follow external domains, and does not bypass robots.txt.
+Uses homepage links and bounded sitemap discovery to choose at most three
+Contact / Stores / About pages. It does not recursively follow page links,
+accept external evidence, or bypass robots.txt.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from candidates import Candidate
 from classification import (
@@ -19,6 +20,7 @@ from classification import (
     _host_matches,
 )
 from content_extraction import (
+    CITY_NAMES,
     MAX_HEADINGS,
     MAX_LINKS,
     MAX_SIGNAL_ITEMS,
@@ -32,7 +34,7 @@ from content_extraction import (
 )
 from fetcher import FetchResult, PageFetcher
 from sitemap import SitemapDiscovery, discover_sitemap_urls
-from url_normalization import extract_domain, normalize_url
+from url_normalization import extract_domain, is_same_site as _is_same_site, normalize_url
 
 MAX_ENRICHMENT_PAGES = 3
 MAX_TOTAL_PAGES = 4  # homepage + enrichment
@@ -118,6 +120,8 @@ REJECT_PATH_TOKENS = (
     "/category/",
     "/item/",
     "/items/",
+    "/article/",
+    "/articles/",
     "/blog/",
     "/blogs/",
 )
@@ -144,6 +148,8 @@ REJECT_PATH_SEGMENTS = {
     "category",
     "item",
     "items",
+    "article",
+    "articles",
     "blog",
     "blogs",
     "p",
@@ -229,7 +235,9 @@ class EnrichedEvidence:
         ordered = self._pages_by_priority()
         if not ordered:
             return empty_evidence(self.root_url)
-        home = ordered[-1] if ordered else None
+        # enrich_candidate always stores the homepage first. Do not let a lower
+        # priority /shop page become the canonical website URL.
+        home = self.pages[0]
         title = next((page.title for page in ordered if page.title), None)
         meta = next((page.meta_description for page in ordered if page.meta_description), None)
         return PageEvidence(
@@ -244,7 +252,6 @@ class EnrichedEvidence:
         )
 
     def combined_signals(self) -> BusinessSignals:
-        merged = BusinessSignals()
         emails: list[str] = []
         phones: list[str] = []
         social: list[str] = []
@@ -273,7 +280,7 @@ class EnrichedEvidence:
         for page in self._pages_by_priority():
             signals = extract_business_signals(page)
             page_url = page.final_url or page.source_url
-            role = classify_internal_page(page_url)
+            role = classify_internal_page(page_url, root_url=self.root_url)
             for address in signals.address_candidates:
                 found.append({"address": address, "url": page_url, "role": role})
         return found
@@ -293,14 +300,8 @@ class EnrichedEvidence:
 
 
 def is_same_site(root_url: str, link_url: str) -> bool:
-    """True when the link is on the same site (www-insensitive, subdomains allowed)."""
-    root = extract_domain(root_url)
-    link = extract_domain(link_url)
-    if not root or not link:
-        return False
-    if link == root:
-        return True
-    return link.endswith("." + root)
+    """Backward-compatible public wrapper around URL site comparison."""
+    return _is_same_site(root_url, link_url)
 
 
 def classify_internal_page(url: str, root_url: str | None = None) -> str:
@@ -339,7 +340,18 @@ def enrichment_priority(link: ExtractedLink, root_url: str) -> int:
 def url_enrichment_score(url: str, root_url: str, anchor: str = "") -> int:
     if not _usable_enrichment_url(url, root_url, anchor):
         return 0
+    root_city = _city_in_url(root_url)
+    target_city = _city_in_url(url)
+    if root_city and target_city and root_city != target_city:
+        return 0
     blob = f"{_path_and_query(url)} {anchor or ''}".lower()
+    if (
+        root_city
+        and not target_city
+        and _token_in(blob, LOCATION_TOKENS)
+        and not _is_generic_location_url(url)
+    ):
+        return 0
     if _token_in(blob, CONTACT_TOKENS):
         return 100
     if _token_in(blob, STORE_TOKENS):
@@ -455,18 +467,21 @@ def enrich_candidate(fetcher: PageFetcher, candidate: Candidate) -> EnrichedEvid
     result.successful_urls.append(homepage.final_url or root)
     result.pages.append(homepage)
 
-    sitemap: SitemapDiscovery = discover_sitemap_urls(fetcher, root)
+    effective_root = homepage.final_url or root
+    sitemap: SitemapDiscovery = discover_sitemap_urls(fetcher, effective_root)
     result.sitemap_discovered = sitemap.discovered
     result.sitemap_source = sitemap.source
     result.sitemap_url_count = len(sitemap.urls)
     relevant = [
-        url for url in sitemap.urls if url_enrichment_score(url, root, "") > 0
+        url
+        for url in sitemap.urls
+        if url_enrichment_score(url, effective_root, "") > 0
     ]
     result.relevant_sitemap_urls = relevant[:50]
     sitemap_source = sitemap.source or "sitemap"
     selected = select_enrichment_candidates(
         homepage.links,
-        root,
+        effective_root,
         sitemap_urls=sitemap.urls,
         sitemap_source=sitemap_source,
     )
@@ -480,7 +495,7 @@ def enrich_candidate(fetcher: PageFetcher, candidate: Candidate) -> EnrichedEvid
         if item.url in result.attempted_urls:
             continue
         result.attempted_urls.append(item.url)
-        page = _fetch_page(fetcher, item.url)
+        page = _fetch_page(fetcher, item.url, required_site=effective_root)
         if page is None:
             result.failed_urls.append(item.url)
             continue
@@ -489,9 +504,16 @@ def enrich_candidate(fetcher: PageFetcher, candidate: Candidate) -> EnrichedEvid
     return result
 
 
-def _fetch_page(fetcher: PageFetcher, url: str) -> PageEvidence | None:
+def _fetch_page(
+    fetcher: PageFetcher,
+    url: str,
+    *,
+    required_site: str | None = None,
+) -> PageEvidence | None:
     fetch: FetchResult = fetcher.fetch(url)
     if not fetch.fetched or not fetch.html:
+        return None
+    if required_site and not is_same_site(required_site, fetch.final_url or url):
         return None
     return extract_page_evidence(
         fetch.html,
@@ -512,9 +534,30 @@ def _usable_enrichment_url(url: str, root_url: str, anchor: str) -> bool:
     if parsed.query:
         return False
     path = (parsed.path or "").lower()
+    if path.endswith(
+        (
+            ".xml",
+            ".xml.gz",
+            ".gz",
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".webp",
+            ".svg",
+            ".pdf",
+            ".css",
+            ".js",
+        )
+    ):
+        return False
+    if _is_homepage_path(url):
+        return False
     if any(token in path for token in REJECT_PATH_TOKENS):
         return False
     segments = [part for part in path.split("/") if part]
+    if any(not unquote(part).strip() for part in segments):
+        return False
     if any(part in REJECT_PATH_SEGMENTS for part in segments):
         return False
     if (anchor or "").strip().lower() in REJECT_ANCHORS:
@@ -529,6 +572,42 @@ def _usable_enrichment_url(url: str, root_url: str, anchor: str) -> bool:
 def _path_and_query(url: str) -> str:
     parsed = urlparse(url)
     return f"{parsed.path or ''} {parsed.query or ''}".lower().replace("_", "-")
+
+
+def _city_in_url(url: str) -> str | None:
+    path = re.sub(r"[-_/]+", " ", urlparse(url).path).lower()
+    for city in sorted(CITY_NAMES, key=len, reverse=True):
+        if city in {"Bandra", "Khar", "Colaba"}:
+            continue
+        if re.search(rf"\b{re.escape(city.lower())}\b", path):
+            return city
+    return None
+
+
+def _is_generic_location_url(url: str) -> bool:
+    generic = {
+        "pages",
+        "store",
+        "stores",
+        "our-store",
+        "our-stores",
+        "location",
+        "locations",
+        "showroom",
+        "showrooms",
+        "store-locator",
+        "storelocator",
+        "visit-us",
+        "find-us",
+        "reach-us",
+        "reachus",
+    }
+    segments = [
+        unquote(part).strip().lower()
+        for part in urlparse(url).path.split("/")
+        if part
+    ]
+    return bool(segments) and all(part in generic for part in segments)
 
 
 def _token_in(blob: str, tokens: tuple[str, ...]) -> bool:
