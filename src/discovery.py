@@ -8,7 +8,8 @@ Flow implemented so far:
         → Candidate
         → fetch + PageEvidence + BusinessSignals
         → BusinessCandidate identification (deterministic)
-        → later: enrichment / SQLite
+        → optional depth-1 same-domain enrichment (Contact/Store/About)
+        → later: SQLite
 
 Search stays behind ``SearchProvider``. Candidate building lives in
 ``candidates.py``. Directory and article hits are classified and kept;

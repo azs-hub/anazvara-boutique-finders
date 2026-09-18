@@ -23,6 +23,7 @@ from classification import (
 )
 from content_extraction import CITY_NAMES, BusinessSignals, ExtractedLink, PageEvidence
 from deduplication import normalize_instagram
+from enrichment import EnrichedEvidence, classify_internal_page
 from url_normalization import extract_domain, normalize_url
 
 UNKNOWN = "UNKNOWN"
@@ -53,6 +54,15 @@ GENERIC_NAMES = {
     "get the app",
     "sign in",
     "subscribe",
+    "homepage",
+    "contact us",
+    "contact information",
+    "get in touch",
+    "about us",
+    "locations",
+    "our stores",
+    "order summary",
+    "shopping cart",
 }
 
 NAV_ANCHORS = {
@@ -139,6 +149,11 @@ SKIP_EXTRACT_DOMAINS = (
     }
 )
 
+CHROME_NAME_RE = re.compile(
+    r"\b(cart|checkout|order summary|shopping cart|item added|added to (?:your )?cart|"
+    r"my account|please login|wishlist|order confirmation|login|register)\b",
+    re.IGNORECASE,
+)
 ROUNDUP_TITLE_RE = re.compile(
     r"\b(best|top|coolest)\b.{0,40}\b(boutique|boutiques|stores?)\b",
     re.IGNORECASE,
@@ -247,8 +262,12 @@ def identify_business_candidates(
     candidate: Candidate,
     page_evidence: PageEvidence,
     business_signals: BusinessSignals,
+    enriched: EnrichedEvidence | None = None,
 ) -> list[BusinessCandidate]:
-    """Return zero or more businesses for one discovery candidate."""
+    """Return zero or more businesses for one discovery candidate.
+
+    ``enriched`` is optional combined homepage + Contact/Store/About evidence.
+    """
     result_type = candidate.result_type
     if result_type is ResultType.DIRECTORY:
         rows = extract_businesses_from_directory(
@@ -268,7 +287,7 @@ def identify_business_candidates(
         )
     else:
         rows = identify_business_from_page(
-            candidate, page_evidence, business_signals
+            candidate, page_evidence, business_signals, enriched=enriched
         )
     return merge_in_memory_duplicates(rows)
 
@@ -277,10 +296,17 @@ def identify_business_from_page(
     candidate: Candidate,
     page_evidence: PageEvidence,
     business_signals: BusinessSignals,
+    enriched: EnrichedEvidence | None = None,
 ) -> list[BusinessCandidate]:
     """Identify the website owner, or listed shops if the page is a roundup."""
-    title = (page_evidence.title or candidate.title or "").strip()
-    if _is_roundup_title(title):
+    homepage_title = (page_evidence.title or candidate.title or "").strip()
+    if enriched is not None and enriched.pages:
+        page_evidence = enriched.as_page_evidence()
+        business_signals = enriched.combined_signals()
+        home = _homepage_from_enriched(enriched)
+        if home and home.title:
+            homepage_title = home.title.strip()
+    if _is_roundup_title(homepage_title):
         listed = _businesses_from_external_links(
             candidate,
             page_evidence,
@@ -296,9 +322,16 @@ def identify_business_from_page(
                 business_signals,
                 name=UNKNOWN,
                 extra_signals=["roundup_page", "publisher_not_boutique"],
+                enriched=enriched,
             )
         ]
-    name, name_source = _website_business_name(candidate, page_evidence)
+    if enriched is not None and enriched.pages:
+        name, name_source = _website_business_name_enriched(candidate, enriched)
+    else:
+        name, name_source = _website_business_name(candidate, page_evidence)
+    extra = ["direct_website"]
+    if enriched is not None and enriched.pages:
+        extra.append("enriched")
     return [
         _owner_candidate(
             candidate,
@@ -306,7 +339,8 @@ def identify_business_from_page(
             business_signals,
             name=name,
             name_source=name_source,
-            extra_signals=["direct_website"],
+            extra_signals=extra,
+            enriched=enriched,
         )
     ]
 
@@ -507,6 +541,7 @@ def _owner_candidate(
     name: str,
     name_source: str = "none",
     extra_signals: list[str] | None = None,
+    enriched: EnrichedEvidence | None = None,
 ) -> BusinessCandidate:
     haystack = _haystack(candidate, page_evidence)
     website = page_evidence.final_url or candidate.normalized_url or candidate.url
@@ -556,6 +591,7 @@ def _owner_candidate(
             "source_type": candidate.result_type.value,
             "name_source": name_source,
             "signals": signals,
+            **(_enrichment_evidence(enriched) if enriched is not None else {}),
         },
         confidence=confidence,
         extra_phones=list(business_signals.phones[1:]),
@@ -575,6 +611,67 @@ def _website_business_name(
         if cleaned != UNKNOWN:
             return cleaned, source
     return UNKNOWN, "none"
+
+
+def _homepage_from_enriched(enriched: EnrichedEvidence) -> PageEvidence | None:
+    for page in enriched.pages:
+        role = classify_internal_page(
+            page.final_url or page.source_url, root_url=enriched.root_url
+        )
+        if role == "homepage":
+            return page
+    return enriched.pages[0] if enriched.pages else None
+
+
+def _website_business_name_enriched(
+    candidate: Candidate, enriched: EnrichedEvidence
+) -> tuple[str, str]:
+    """Prefer About, then homepage, then contact/store titles."""
+    buckets: dict[str, list[PageEvidence]] = {
+        "about": [],
+        "homepage": [],
+        "contact": [],
+        "location": [],
+        "other": [],
+    }
+    for page in enriched.pages:
+        role = classify_internal_page(
+            page.final_url or page.source_url, root_url=enriched.root_url
+        )
+        buckets.setdefault(role, []).append(page)
+    ordered: list[tuple[PageEvidence, str]] = []
+    for role, source in (
+        ("about", "about_page"),
+        ("homepage", "homepage"),
+        ("contact", "contact_page"),
+        ("location", "store_page"),
+    ):
+        for page in buckets.get(role, []):
+            ordered.append((page, source))
+    for page, source in ordered:
+        for raw, kind in (
+            (page.title or "", f"{source}_title"),
+            (_first(page.headings) or "", f"{source}_heading"),
+        ):
+            cleaned = _clean_name(raw)
+            if cleaned != UNKNOWN:
+                return cleaned, kind
+    return _website_business_name(candidate, enriched.as_page_evidence())
+
+
+def _enrichment_evidence(enriched: EnrichedEvidence) -> dict:
+    sources = enriched.address_sources()
+    return {
+        "enrichment": {
+            "successful_urls": list(enriched.successful_urls),
+            "failed_urls": list(enriched.failed_urls),
+            "selected_urls": list(enriched.selected_urls),
+            "selected_url_sources": list(enriched.selected_url_sources)[:8],
+            "sitemap_discovered": enriched.sitemap_discovered,
+            "sitemap_source": enriched.sitemap_source,
+            "address_sources": sources[:8],
+        }
+    }
 
 
 def _clean_name(raw: str) -> str:
@@ -601,6 +698,8 @@ def _clean_name(raw: str) -> str:
 def _looks_generic(text: str) -> bool:
     lowered = text.strip().lower().rstrip("!.")
     if lowered in GENERIC_NAMES:
+        return True
+    if CHROME_NAME_RE.search(lowered):
         return True
     if re.fullmatch(r"women'?s fashion", lowered):
         return True
@@ -921,7 +1020,7 @@ def _haystack(candidate: Candidate, evidence: PageEvidence) -> str:
         evidence.title,
         evidence.meta_description,
         " ".join(evidence.headings),
-        evidence.text[:8000],
+        evidence.text[:24000],
     ]
     return " ".join(part for part in parts if part)
 

@@ -11,8 +11,9 @@ SearXNG discovery
     → candidate normalization
     → candidate classification
     → public page fetch + evidence extraction
+    → optional depth-1 same-domain enrichment (Contact / Store / About)
     → deterministic BusinessCandidate identification
-    → later: enrichment / historical SQLite / Excel
+    → later: historical SQLite / Excel
 ```
 
 Business identification is conservative and rule-based. Weak evidence stays `UNKNOWN`. Directory/article pages yield linked businesses; those websites are not fetched in this step.
@@ -91,7 +92,39 @@ python src/benchmark.py "women's fashion boutique Mumbai" --limit 50
 python src/benchmark.py "women's fashion boutique Mumbai" --limit 100
 ```
 
-Writes `output/benchmark_YYYYMMDD_HHMMSS.json` (not committed).
+Writes `output/benchmark_YYYYMMDD_HHMMSS.json` (not committed). The benchmark does **not** run enrichment yet.
+
+### STEP 7 — Controlled enrichment
+
+For WEBSITE candidates only, the homepage is fetched, then a small set of **same-domain** internal pages (Contact, Stores/Locations, About). Evidence is combined before identification.
+
+```
+SearXNG result
+    → homepage
+    → internal links + sitemap (discovery only)
+    → relevant page selection
+    → maximum 3 enrichment pages
+    → combined evidence
+    → deterministic identification
+```
+
+Rules:
+
+- Depth **1** only (homepage links plus selected sitemap URLs; no second-level crawl)
+- Maximum **3** internal pages per candidate (4 HTML fetches including the homepage)
+- Sitemap is a **URL discovery source only** — product/category URLs are filtered out
+- Child sitemap indexes: at most **1** extra level and **5** child sitemaps
+- Same registrable site only (`example.com` ≡ `www.example.com`; no Instagram/Facebook/marketplaces)
+- Existing fetcher: timeout, User-Agent, `robots.txt`, HTML/XML limits, no extra retries
+- No recursive website crawl, pagination, or query-parameter exploration
+- No AI, no database writes, no paid APIs
+
+```bash
+source .venv/bin/activate
+python -m src.enrichment_test
+```
+
+Uses query `women's fashion boutique Mumbai` and up to 5 WEBSITE candidates.
 
 ### Local SearXNG (Docker Compose)
 
@@ -202,6 +235,9 @@ anazvara-boutique-scraper/
 │   ├── fetch_test.py
 │   ├── business_candidates.py
 │   ├── identify_test.py
+│   ├── enrichment.py
+│   ├── sitemap.py
+│   ├── enrichment_test.py
 │   ├── benchmark.py
 │   ├── scraper.py            # boutique record model; identification later
 │   ├── database.py
@@ -217,7 +253,8 @@ anazvara-boutique-scraper/
 │   ├── test_candidate_discovery.py
 │   ├── test_fetcher.py
 │   ├── test_content_extraction.py
-│   └── test_business_candidates.py
+│   ├── test_business_candidates.py
+│   └── test_enrichment.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
@@ -233,9 +270,9 @@ Later runs for the same city must exclude boutiques already stored in SQLite. Th
 
 ## Not in this version
 
-- Boutique identification beyond the deterministic baseline
+- Boutique identification beyond the deterministic baseline (plus optional depth-1 enrichment)
 - Writing extracted businesses to SQLite or Excel
-- Crawling /about, /contact, or extracted directory websites
+- Recursive crawling or fetching websites extracted from directories
 - Playwright
 - AI / LLM APIs
 - Paid search or scraping APIs

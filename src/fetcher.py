@@ -32,6 +32,13 @@ DEFAULT_DELAY_SECONDS = 1.0
 MAX_HTML_BYTES = 1_048_576
 USER_AGENT = "AnazvaraBoutiqueScraper/0.1 (public-page fetch; local research)"
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+XML_CONTENT_TYPES = (
+    "application/xml",
+    "text/xml",
+    "application/rss+xml",
+    "application/atom+xml",
+    "text/plain",
+)
 
 
 @dataclass(frozen=True)
@@ -77,9 +84,14 @@ class PageFetcher:
         self.session.headers.setdefault("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
         self._last_request_at: float | None = None
         self._robots_cache: dict[str, RobotFileParser | bool] = {}
+        self._robots_text: dict[str, str] = {}
 
-    def fetch(self, target: Candidate | str) -> FetchResult:
-        """GET ``target`` (a Candidate or URL). Network failures are not raised."""
+    def fetch(self, target: Candidate | str, *, allow_xml: bool = False) -> FetchResult:
+        """GET ``target`` (a Candidate or URL). Network failures are not raised.
+
+        HTML is accepted by default. Pass ``allow_xml=True`` for robots.txt or
+        sitemap documents (XML / plain text). Robots rules still apply.
+        """
         requested = _target_url(target)
         started = time.monotonic()
         if not requested:
@@ -148,7 +160,7 @@ class PageFetcher:
                     elapsed_seconds=elapsed,
                     robots_allowed=allowed,
                 )
-            if not _is_html_type(content_type):
+            if not _is_allowed_type(content_type, allow_xml=allow_xml):
                 return FetchResult(
                     requested_url=requested,
                     final_url=final_url,
@@ -233,16 +245,45 @@ class PageFetcher:
             )
             if response.status_code >= 400:
                 self._robots_cache[robots_url] = True
+                self._robots_text[robots_url] = ""
                 return True
+            self._robots_text[robots_url] = response.text or ""
             parser.parse(response.text.splitlines())
         except requests.RequestException:
             self._robots_cache[robots_url] = True
+            self._robots_text.setdefault(robots_url, "")
             return True
         except Exception:
             self._robots_cache[robots_url] = True
+            self._robots_text.setdefault(robots_url, "")
             return True
         self._robots_cache[robots_url] = parser
         return bool(parser.can_fetch(self.user_agent, url))
+
+    def robots_sitemap_urls(self, page_url: str) -> list[str]:
+        """Return Sitemap: URLs from robots.txt. Failures yield an empty list."""
+        parsed = urlparse(page_url if "://" in page_url else f"https://{page_url}")
+        if not parsed.scheme or not parsed.netloc:
+            return []
+        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+        if robots_url not in self._robots_text:
+            if self.respect_robots:
+                self._robots_allowed(page_url)
+            else:
+                result = self.fetch(robots_url, allow_xml=True)
+                self._robots_text[robots_url] = result.html or ""
+        return _parse_robots_sitemap_lines(self._robots_text.get(robots_url, ""))
+
+
+def _parse_robots_sitemap_lines(text: str) -> list[str]:
+    found: list[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line.lower().startswith("sitemap:"):
+            value = line.split(":", 1)[1].strip()
+            if value:
+                found.append(value)
+    return found
 
 
 def _target_url(target: Candidate | str) -> str:
@@ -255,3 +296,11 @@ def _is_html_type(content_type: str) -> bool:
     if not content_type:
         return True
     return any(content_type.startswith(prefix) for prefix in HTML_CONTENT_TYPES)
+
+
+def _is_allowed_type(content_type: str, *, allow_xml: bool) -> bool:
+    if _is_html_type(content_type):
+        return True
+    if not allow_xml:
+        return False
+    return any(content_type.startswith(prefix) for prefix in XML_CONTENT_TYPES)

@@ -99,6 +99,18 @@ class FetcherTests(unittest.TestCase):
         self.assertEqual(result.content_type, "application/pdf")
         self.assertIsNone(result.html)
 
+    def test_xml_allowed_for_sitemaps(self) -> None:
+        self.session.get.return_value = _response(
+            "https://shop.example/sitemap.xml",
+            content=b"<?xml version='1.0'?><urlset></urlset>",
+            content_type="application/xml",
+        )
+        blocked = self.fetcher.fetch("https://shop.example/sitemap.xml")
+        self.assertFalse(blocked.fetched)
+        allowed = self.fetcher.fetch("https://shop.example/sitemap.xml", allow_xml=True)
+        self.assertTrue(allowed.fetched)
+        self.assertIn("urlset", allowed.html or "")
+
     def test_robots_disallow_without_get(self) -> None:
         class DenyParser:
             def can_fetch(self, _agent: str, _url: str) -> bool:
