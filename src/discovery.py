@@ -1,9 +1,13 @@
 """Discovery layer for finding boutique website candidates.
 
-This module is intentionally separate from website scraping so the search
-provider can be swapped later without rewriting the rest of the application.
+Web search is isolated behind ``SearchProvider`` in ``search_provider.py``.
+The first concrete engine is SearXNG (``searxng_provider.py``). Later
+providers can be added without rewriting website scraping, SQLite, or Excel
+export.
 
-Not implemented in this increment. Do not call from production flows yet.
+``BoutiqueDiscovery`` (city + quantity workflow) is not implemented yet.
+This step only tests whether a configured SearXNG instance returns useful
+search hits. Result websites are not scraped here.
 """
 
 from __future__ import annotations
