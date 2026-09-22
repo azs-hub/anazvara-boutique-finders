@@ -92,7 +92,19 @@ python src/benchmark.py "women's fashion boutique Mumbai" --limit 50
 python src/benchmark.py "women's fashion boutique Mumbai" --limit 100
 ```
 
-Writes `output/benchmark_YYYYMMDD_HHMMSS.json` (not committed). The benchmark does **not** run enrichment yet.
+Writes `output/benchmark_YYYYMMDD_HHMMSS.json` (not committed). This homepage-only run is the Step 6.5 baseline.
+
+### STEP 8 — Enrichment impact benchmark
+
+Compare the same query with controlled enrichment against the saved Step 6.5 homepage-only JSON. Measurement only — it does not tune heuristics or add AI.
+
+```bash
+source .venv/bin/activate
+python src/enrichment_benchmark.py "women's fashion boutique Mumbai" --limit 50
+python src/enrichment_benchmark.py "women's fashion boutique Mumbai" --limit 100
+```
+
+Writes `output/benchmark_enriched_YYYYMMDD_HHMMSS.json` (not committed). Count increases are not treated as automatically better.
 
 ### STEP 7 — Controlled enrichment
 
@@ -239,6 +251,7 @@ anazvara-boutique-scraper/
 │   ├── sitemap.py
 │   ├── enrichment_test.py
 │   ├── benchmark.py
+│   ├── enrichment_benchmark.py
 │   ├── scraper.py            # boutique record model; identification later
 │   ├── database.py
 │   ├── deduplication.py
@@ -255,7 +268,8 @@ anazvara-boutique-scraper/
 │   ├── test_content_extraction.py
 │   ├── test_business_candidates.py
 │   ├── test_deduplication.py
-│   └── test_enrichment.py
+│   ├── test_enrichment.py
+│   └── test_enrichment_benchmark.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
