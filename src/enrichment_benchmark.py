@@ -579,6 +579,8 @@ def run_enriched_benchmark(query: str, limit: int) -> dict:
     enrichment_pages_selected = 0
     enrichment_successes = 0
     enrichment_failures = 0
+    enrichment_skipped_strong = 0
+    sitemap_skipped = 0
 
     before_raw: list[BusinessCandidate] = []
     after_raw: list[BusinessCandidate] = []
@@ -620,6 +622,10 @@ def run_enriched_benchmark(query: str, limit: int) -> dict:
             )
             if enriched.sitemap_discovered:
                 sitemap_discovered += 1
+            if enriched.sitemap_skipped:
+                sitemap_skipped += 1
+            if enriched.enrichment_tier == "STRONG":
+                enrichment_skipped_strong += 1
             sitemap_urls_discovered += enriched.sitemap_url_count
             relevant_sitemap_urls += len(enriched.relevant_sitemap_urls)
             enrichment_pages_selected += len(enriched.selected_urls)
@@ -631,6 +637,9 @@ def run_enriched_benchmark(query: str, limit: int) -> dict:
             enrichment_failures += extra_fail
             enrichment_meta["enrichment_successes"] = extra_ok
             enrichment_meta["enrichment_failures"] = extra_fail
+            enrichment_meta["enrichment_tier"] = enriched.enrichment_tier
+            enrichment_meta["sitemap_skipped"] = enriched.sitemap_skipped
+            enrichment_meta["wanted_roles"] = list(enriched.wanted_roles)
             if enriched.pages:
                 homepage_ok += 1
                 home = enriched.pages[0]
@@ -769,6 +778,7 @@ def run_enriched_benchmark(query: str, limit: int) -> dict:
             }
         )
 
+    candidate_count = max(len(candidates), 1)
     performance = {
         "runtime_seconds": elapsed,
         "homepage_fetch_count": homepage_attempts,
@@ -784,6 +794,9 @@ def run_enriched_benchmark(query: str, limit: int) -> dict:
         "robots_http": kind_counts.get("robots", 0),
         "sitemap_http": kind_counts.get("sitemap", 0),
         "html_http": kind_counts.get("html", 0),
+        "average_requests_per_candidate": round(
+            len(fetcher.http_requests) / candidate_count, 2
+        ),
     }
     after_metrics = comparison_metrics_from_counts(
         candidates=len(candidates),
@@ -823,6 +836,9 @@ def run_enriched_benchmark(query: str, limit: int) -> dict:
             },
             "enrichment": {
                 "candidates_eligible": eligible,
+                "enrichment_attempts": eligible - enrichment_skipped_strong,
+                "enrichment_skipped_strong": enrichment_skipped_strong,
+                "sitemap_skipped": sitemap_skipped,
                 "sitemap_discovered": sitemap_discovered,
                 "sitemap_urls_discovered": sitemap_urls_discovered,
                 "relevant_sitemap_urls": relevant_sitemap_urls,
@@ -836,6 +852,16 @@ def run_enriched_benchmark(query: str, limit: int) -> dict:
         "information_gain": {
             "comparable_website_owners": compared_owners,
             **gain_totals,
+            "records_improved_by_enrichment": sum(
+                1
+                for item in pair_records
+                if item["comparable"] and item["comparison"]["gained"]
+            ),
+            "records_where_enrichment_weakened_existing_evidence": sum(
+                1
+                for item in pair_records
+                if item["comparable"] and item["comparison"]["worse"]
+            ),
             "worse_owner_rows": sum(
                 1
                 for item in pair_records
@@ -918,7 +944,7 @@ def print_summary(report: dict) -> None:
     gain = report["information_gain"]
     performance = report["performance"]
 
-    print("=== ENRICHMENT IMPACT BENCHMARK ===")
+    print("=== CANONICAL END-TO-END BENCHMARK ===")
     print(f"Query: {report['query']}")
     print(f"Limit: {report['limit']}")
     print(f"Runtime: {performance['runtime_seconds']}s")
@@ -936,6 +962,9 @@ def print_summary(report: dict) -> None:
     print()
     print("ENRICHMENT")
     print(f"Candidates eligible for enrichment: {enrichment['candidates_eligible']}")
+    print(f"Enrichment attempts: {enrichment.get('enrichment_attempts', enrichment['candidates_eligible'])}")
+    print(f"Strong records skipped: {enrichment.get('enrichment_skipped_strong', 0)}")
+    print(f"Sitemap skipped: {enrichment.get('sitemap_skipped', 0)}")
     print(f"Sitemap discovered: {enrichment['sitemap_discovered']}")
     print(f"Sitemap URLs discovered: {enrichment['sitemap_urls_discovered']}")
     print(f"Relevant sitemap URLs: {enrichment['relevant_sitemap_urls']}")
@@ -955,6 +984,14 @@ def print_summary(report: dict) -> None:
 
     print("INFORMATION GAIN (same candidates, homepage vs enrichment)")
     print(f"Comparable website owners: {gain['comparable_website_owners']}")
+    print(
+        "Records improved by enrichment: "
+        f"{gain.get('records_improved_by_enrichment', gain['gained_any_field'])}"
+    )
+    print(
+        "Records where enrichment weakened existing evidence: "
+        f"{gain.get('records_where_enrichment_weakened_existing_evidence', gain['worse_owner_rows'])}"
+    )
     print(f"Owners that gained any field: {gain['gained_any_field']}")
     print(f"Owners with a worse field: {gain['worse_owner_rows']}")
     print(f"Owners with a changed field: {gain['changed_owner_rows']}")
@@ -1013,6 +1050,10 @@ def print_summary(report: dict) -> None:
     print(f"Total HTTP fetches: {performance['total_http_fetches']}")
     print(f"Failed HTTP: {performance['failed_http']}")
     print(f"HTTP by kind: {performance['http_by_kind']}")
+    print(
+        "Average requests per candidate: "
+        f"{performance.get('average_requests_per_candidate', '-')}"
+    )
     print()
     print("COMPARISON vs Step 6.5 (homepage-only saved benchmark)")
     baseline = report.get("baseline")

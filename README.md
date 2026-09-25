@@ -2,7 +2,15 @@
 
 Free Python application that discovers clothing and fashion boutiques city by city, stores historical results in SQLite, and exports an Excel file.
 
-The application does **not** use AI/LLM APIs and does **not** consume OpenAI tokens.
+The application does **not** use cloud AI/LLM APIs and does **not** consume OpenAI tokens.
+
+Optional local classification (Ollama + `qwen3.5:9b`) can run **after** the rule engine for ambiguous WEBSITE records only. It is off by default (`OLLAMA_ENABLED=0`). Rule fields are never overwritten; validated Qwen output is stored separately (`rule_*` vs `ai_*`).
+
+```bash
+source .venv/bin/activate
+python src/llm_benchmark.py "women's fashion boutique Mumbai" --limit 20
+python src/llm_benchmark.py "women's fashion boutique Mumbai" --limit 20 --no-llm
+```
 
 Current discovery flow:
 
@@ -17,6 +25,8 @@ SearXNG discovery
 ```
 
 Business identification is conservative and rule-based. Weak evidence stays `UNKNOWN`. Directory/article pages yield linked businesses; those websites are not fetched in this step.
+
+Identification prefers structured evidence (JSON-LD Organization / LocalBusiness / WebSite, `og:site_name`) over page titles. Depth-1 enrichment is adaptive: complete records skip extra fetches; incomplete records fetch only pages that can fill missing fields. Sitemap discovery stays bounded, stops once useful URLs are found, and is cached per domain during a run. Later enrichment evidence does not replace stronger earlier evidence.
 
 ## Requirements
 
@@ -251,7 +261,10 @@ anazvara-boutique-scraper/
 │   ├── sitemap.py
 │   ├── enrichment_test.py
 │   ├── benchmark.py
+│   ├── structured_evidence.py
 │   ├── enrichment_benchmark.py
+│   ├── local_llm.py
+│   ├── llm_benchmark.py
 │   ├── scraper.py            # boutique record model; identification later
 │   ├── database.py
 │   ├── deduplication.py
@@ -269,7 +282,9 @@ anazvara-boutique-scraper/
 │   ├── test_business_candidates.py
 │   ├── test_deduplication.py
 │   ├── test_enrichment.py
-│   └── test_enrichment_benchmark.py
+│   ├── test_enrichment_benchmark.py
+│   ├── test_structured_evidence.py
+│   └── test_local_llm.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt

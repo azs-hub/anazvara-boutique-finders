@@ -682,9 +682,10 @@ class SitemapHelperTests(unittest.TestCase):
         fetcher = FakeFetcher(responses)
         discovery = discover_sitemap_urls(fetcher, "https://rozina.example")
         self.assertEqual(discovery.source, "sitemap")
-        self.assertEqual(discovery.child_sitemaps_fetched, 5)
+        self.assertLessEqual(discovery.child_sitemaps_fetched, 5)
         self.assertIn("https://rozina.example/contact-us", discovery.urls)
         self.assertNotIn("https://rozina.example/sitemap-f.xml", fetcher.fetched_urls)
+        self.assertNotIn("https://rozina.example/sitemap-a.xml", fetcher.fetched_urls)
 
     def test_malformed_xml_handling(self) -> None:
         parsed = parse_sitemap_xml("<urlset><loc>not-closed")

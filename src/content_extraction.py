@@ -14,6 +14,7 @@ Limits
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urljoin
@@ -28,6 +29,21 @@ MAX_TEXT_CHARS = 50_000
 MAX_LINKS = 200
 MAX_HEADINGS = 40
 MAX_SIGNAL_ITEMS = 30
+MAX_STRUCTURED_FACTS = 40
+
+LOCAL_BUSINESS_TYPES = {
+    "localbusiness",
+    "store",
+    "clothingstore",
+    "fashionstore",
+    "shoestore",
+    "jewelrystore",
+    "apparelstore",
+}
+ORGANIZATION_TYPES = {"organization", "brand", "corporation", "ngo"}
+WEBSITE_TYPES = {"website"}
+ADDRESS_TYPES = {"postaladdress"}
+CONTACT_TYPES = {"contactpoint"}
 
 USEFUL_PATH_TOKENS = (
     "about",
@@ -99,6 +115,18 @@ class ExtractedLink:
 
 
 @dataclass(frozen=True)
+class StructuredFact:
+    """One extracted field with source provenance. Never inferred."""
+
+    field: str
+    value: str
+    source: str
+    evidence: str
+    confidence: str
+    schema_type: str | None = None
+
+
+@dataclass(frozen=True)
 class PageEvidence:
     """Raw evidence from one fetched page. Not a boutique record."""
 
@@ -110,6 +138,9 @@ class PageEvidence:
     text: str
     headings: list[str]
     links: list[ExtractedLink]
+    og_site_name: str | None = None
+    meta_brand: str | None = None
+    structured_facts: list[StructuredFact] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -133,6 +164,7 @@ def extract_page_evidence(
     """Parse HTML into title, text, headings, and absolute links."""
     base = final_url or source_url
     soup = BeautifulSoup(html, "html.parser")
+    og_site_name, meta_brand, structured_facts = extract_structured_metadata(soup)
     _strip_noise(soup)
 
     title = _page_title(soup)
@@ -155,6 +187,9 @@ def extract_page_evidence(
         text=text,
         headings=headings,
         links=links,
+        og_site_name=og_site_name,
+        meta_brand=meta_brand,
+        structured_facts=structured_facts,
     )
 
 
@@ -178,13 +213,28 @@ def extract_business_signals(
     whatsapp = _unique(_whatsapp_from_links(evidence.links) + _whatsapp_from_text(haystack))
     addresses = _unique(_address_candidates(evidence.text))
     cities = _unique(_city_mentions(haystack))
+    for fact in evidence.structured_facts:
+        if fact.field == "email":
+            emails.append(fact.value)
+        elif fact.field == "telephone":
+            phones.append(fact.value)
+        elif fact.field == "sameAs":
+            lowered = fact.value.lower()
+            if "instagram.com" in lowered or "facebook.com" in lowered or "fb.com" in lowered:
+                social.append(fact.value)
+            if "wa.me" in lowered or "whatsapp" in lowered:
+                whatsapp.append(fact.value)
+        elif fact.field == "address":
+            addresses.append(fact.value)
+        elif fact.field in {"city", "addressLocality"}:
+            cities.append(fact.value)
     return BusinessSignals(
-        emails=emails[:MAX_SIGNAL_ITEMS],
-        phones=phones[:MAX_SIGNAL_ITEMS],
-        social_urls=social[:MAX_SIGNAL_ITEMS],
-        whatsapp_urls=whatsapp[:MAX_SIGNAL_ITEMS],
-        address_candidates=addresses[:MAX_SIGNAL_ITEMS],
-        city_mentions=cities[:MAX_SIGNAL_ITEMS],
+        emails=_unique(emails)[:MAX_SIGNAL_ITEMS],
+        phones=_unique(phones)[:MAX_SIGNAL_ITEMS],
+        social_urls=_unique(social)[:MAX_SIGNAL_ITEMS],
+        whatsapp_urls=_unique(whatsapp)[:MAX_SIGNAL_ITEMS],
+        address_candidates=_unique(addresses)[:MAX_SIGNAL_ITEMS],
+        city_mentions=_unique(cities)[:MAX_SIGNAL_ITEMS],
     )
 
 
@@ -204,6 +254,250 @@ def empty_evidence(source_url: str, *, title: str | None = None) -> PageEvidence
 
 def empty_signals() -> BusinessSignals:
     return BusinessSignals()
+
+
+def extract_structured_metadata(
+    soup: BeautifulSoup,
+) -> tuple[str | None, str | None, list[StructuredFact]]:
+    """Read JSON-LD and brand meta before scripts are stripped as noise."""
+    og_site_name = _meta_content(soup, property="og:site_name")
+    meta_brand = (
+        _meta_content(soup, name="application-name")
+        or _meta_content(soup, name="apple-mobile-web-app-title")
+        or _meta_content(soup, name="publisher")
+        or _meta_content(soup, property="og:brand")
+    )
+    facts = _facts_from_jsonld(soup)
+    if og_site_name:
+        facts.append(
+            StructuredFact(
+                field="name",
+                value=og_site_name,
+                source="og_site_name",
+                evidence=og_site_name,
+                confidence="HIGH",
+            )
+        )
+    if meta_brand:
+        facts.append(
+            StructuredFact(
+                field="name",
+                value=meta_brand,
+                source="meta_brand",
+                evidence=meta_brand,
+                confidence="MEDIUM",
+            )
+        )
+    return og_site_name, meta_brand, facts[:MAX_STRUCTURED_FACTS]
+
+
+def _meta_content(soup: BeautifulSoup, **attrs: str) -> str | None:
+    tag = soup.find("meta", attrs=attrs)
+    if isinstance(tag, Tag) and tag.get("content"):
+        value = str(tag["content"]).strip()
+        return value or None
+    return None
+
+
+def _facts_from_jsonld(soup: BeautifulSoup) -> list[StructuredFact]:
+    facts: list[StructuredFact] = []
+    for tag in soup.find_all("script"):
+        if not isinstance(tag, Tag):
+            continue
+        script_type = (tag.get("type") or "").split(";")[0].strip().lower()
+        if script_type != "application/ld+json":
+            continue
+        raw = (tag.string or tag.get_text() or "").strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(_strip_jsonld_cdata(raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        for node in _flatten_jsonld(payload):
+            facts.extend(_facts_from_jsonld_node(node))
+            if len(facts) >= MAX_STRUCTURED_FACTS:
+                return facts[:MAX_STRUCTURED_FACTS]
+    return facts
+
+
+def _strip_jsonld_cdata(raw: str) -> str:
+    text = raw.strip()
+    if text.startswith("/*"):
+        text = re.sub(r"^/\*.*?\*/", "", text, flags=re.DOTALL).strip()
+    text = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", text, flags=re.DOTALL)
+    return text.strip()
+
+
+def _flatten_jsonld(node) -> list[dict]:
+    found: list[dict] = []
+
+    def walk(value) -> None:
+        if isinstance(value, list):
+            for item in value:
+                walk(item)
+            return
+        if not isinstance(value, dict):
+            return
+        if "@graph" in value:
+            walk(value["@graph"])
+        if value.get("@type") or value.get("name") or value.get("address"):
+            found.append(value)
+        for key, child in value.items():
+            if key in {"@context", "@id", "@type", "@graph"}:
+                continue
+            if isinstance(child, (dict, list)):
+                walk(child)
+
+    walk(node)
+    return found
+
+
+def _jsonld_types(node: dict) -> list[str]:
+    raw = node.get("@type")
+    if isinstance(raw, list):
+        return [str(item).split("/")[-1] for item in raw if item]
+    if raw:
+        return [str(raw).split("/")[-1]]
+    return []
+
+
+def _jsonld_source(types: list[str]) -> tuple[str, str | None]:
+    lowered = [item.lower() for item in types]
+    for item, original in zip(lowered, types):
+        if item in LOCAL_BUSINESS_TYPES:
+            return "jsonld_localbusiness", original
+        if item in ADDRESS_TYPES:
+            return "jsonld_postaladdress", original
+        if item in CONTACT_TYPES:
+            return "jsonld_contactpoint", original
+        if item in WEBSITE_TYPES:
+            return "jsonld_website", original
+        if item in ORGANIZATION_TYPES:
+            return "jsonld_organization", original
+    if types:
+        return "jsonld_other", types[0]
+    return "jsonld_other", None
+
+
+def _text_value(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("name", "value", "text", "@value"):
+            inner = _text_value(value.get(key))
+            if inner:
+                return inner
+    return None
+
+
+def _string_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        found: list[str] = []
+        for item in value:
+            text = _text_value(item)
+            if text:
+                found.append(text)
+        return found
+    text = _text_value(value)
+    return [text] if text else []
+
+
+def _format_postal_address(node: dict) -> str | None:
+    parts = [
+        _text_value(node.get("streetAddress")),
+        _text_value(node.get("addressLocality")),
+        _text_value(node.get("addressRegion")),
+        _text_value(node.get("postalCode")),
+        _text_value(node.get("addressCountry")),
+    ]
+    compact = ", ".join(part for part in parts if part)
+    return compact or None
+
+
+def _facts_from_jsonld_node(node: dict) -> list[StructuredFact]:
+    types = _jsonld_types(node)
+    source, schema_type = _jsonld_source(types)
+    facts: list[StructuredFact] = []
+    interesting = source != "jsonld_other" or bool(
+        node.get("address") or node.get("telephone") or node.get("email")
+    )
+    if not interesting:
+        return facts
+
+    def add(field: str, value: str | None, *, evidence: str | None = None, confidence: str = "HIGH") -> None:
+        if not value:
+            return
+        facts.append(
+            StructuredFact(
+                field=field,
+                value=value,
+                source=source,
+                evidence=evidence or value,
+                confidence=confidence,
+                schema_type=schema_type,
+            )
+        )
+
+    if source in {
+        "jsonld_organization",
+        "jsonld_localbusiness",
+        "jsonld_website",
+    }:
+        add("name", _text_value(node.get("name")))
+        add("url", _text_value(node.get("url")))
+        add("telephone", _text_value(node.get("telephone")))
+        add("email", _text_value(node.get("email")))
+        for social in _string_list(node.get("sameAs")):
+            add("sameAs", social)
+        address = node.get("address")
+        if isinstance(address, dict):
+            formatted = _format_postal_address(address) or _text_value(address)
+            add("address", formatted, evidence="PostalAddress")
+            add("addressLocality", _text_value(address.get("addressLocality")))
+            add("addressRegion", _text_value(address.get("addressRegion")))
+            add("city", _text_value(address.get("addressLocality")))
+        elif isinstance(address, list):
+            for item in address:
+                if isinstance(item, dict):
+                    formatted = _format_postal_address(item) or _text_value(item)
+                    add("address", formatted, evidence="PostalAddress")
+                    add("city", _text_value(item.get("addressLocality")))
+                    add("addressLocality", _text_value(item.get("addressLocality")))
+                else:
+                    add("address", _text_value(item))
+        else:
+            add("address", _text_value(address))
+        contact = node.get("contactPoint")
+        points = contact if isinstance(contact, list) else [contact] if contact else []
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            add("telephone", _text_value(point.get("telephone")), evidence="ContactPoint")
+            add("email", _text_value(point.get("email")), evidence="ContactPoint")
+    elif source == "jsonld_postaladdress":
+        add("address", _format_postal_address(node) or _text_value(node.get("name")))
+        add("addressLocality", _text_value(node.get("addressLocality")))
+        add("addressRegion", _text_value(node.get("addressRegion")))
+        add("city", _text_value(node.get("addressLocality")))
+    elif source == "jsonld_contactpoint":
+        add("telephone", _text_value(node.get("telephone")))
+        add("email", _text_value(node.get("email")))
+    if source == "jsonld_localbusiness":
+        add(
+            "physical_store",
+            "true",
+            evidence=schema_type or "LocalBusiness",
+            confidence="HIGH",
+        )
+    return facts
 
 
 def _strip_noise(soup: BeautifulSoup) -> None:

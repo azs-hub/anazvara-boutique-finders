@@ -34,6 +34,7 @@ from content_extraction import (
 )
 from fetcher import FetchResult, PageFetcher
 from sitemap import SitemapDiscovery, discover_sitemap_urls
+from structured_evidence import EnrichmentTier, assess_enrichment_need
 from url_normalization import extract_domain, is_same_site as _is_same_site, normalize_url
 
 MAX_ENRICHMENT_PAGES = 3
@@ -96,6 +97,11 @@ BUSINESS_TOKENS = (
     "retail",
     "stockist",
     "stockists",
+)
+FASHION_TOKENS = (
+    "womenswear",
+    "womens-wear",
+    "ladieswear",
 )
 REJECT_PATH_TOKENS = (
     "/login",
@@ -197,6 +203,9 @@ class EnrichedEvidence:
     sitemap_source: str | None = None
     sitemap_url_count: int = 0
     relevant_sitemap_urls: list[str] = field(default_factory=list)
+    enrichment_tier: str | None = None
+    wanted_roles: list[str] = field(default_factory=list)
+    sitemap_skipped: bool = False
 
     def combined_titles(self) -> list[str]:
         return [page.title for page in self.pages if page.title]
@@ -240,6 +249,21 @@ class EnrichedEvidence:
         home = self.pages[0]
         title = next((page.title for page in ordered if page.title), None)
         meta = next((page.meta_description for page in ordered if page.meta_description), None)
+        og_site_name = home.og_site_name or next(
+            (page.og_site_name for page in ordered if page.og_site_name), None
+        )
+        meta_brand = home.meta_brand or next(
+            (page.meta_brand for page in ordered if page.meta_brand), None
+        )
+        facts: list = []
+        seen_facts: set[tuple[str, str, str]] = set()
+        for page in [home, *ordered]:
+            for fact in page.structured_facts:
+                key = (fact.field, fact.source, fact.value)
+                if key in seen_facts:
+                    continue
+                seen_facts.add(key)
+                facts.append(fact)
         return PageEvidence(
             source_url=self.root_url,
             final_url=home.final_url if home else self.root_url,
@@ -249,6 +273,9 @@ class EnrichedEvidence:
             text=self.combined_text(),
             headings=self.combined_headings(),
             links=self.combined_links(),
+            og_site_name=og_site_name,
+            meta_brand=meta_brand,
+            structured_facts=facts,
         )
 
     def combined_signals(self) -> BusinessSignals:
@@ -286,7 +313,15 @@ class EnrichedEvidence:
         return found
 
     def _pages_by_priority(self) -> list[PageEvidence]:
-        rank = {"contact": 0, "location": 1, "about": 2, "business": 3, "homepage": 4, "other": 5}
+        rank = {
+            "contact": 0,
+            "location": 1,
+            "about": 2,
+            "business": 3,
+            "fashion": 4,
+            "homepage": 5,
+            "other": 6,
+        }
 
         def key(page: PageEvidence) -> int:
             url = page.final_url or page.source_url
@@ -321,6 +356,8 @@ def classify_internal_page(url: str, root_url: str | None = None) -> str:
         return "about"
     if _token_in(blob, BUSINESS_TOKENS):
         return "business"
+    if _token_in(blob, FASHION_TOKENS):
+        return "fashion"
     return "other"
 
 
@@ -364,6 +401,10 @@ def url_enrichment_score(url: str, root_url: str, anchor: str = "") -> int:
         return 70
     if _token_in(blob, BUSINESS_TOKENS):
         return 55
+    if _token_in(blob, FASHION_TOKENS) and not re.search(
+        r"\b(dress|dresses|top|tops|sale|new|product)\b", blob
+    ):
+        return 40
     if re.search(r"\bshop\b", blob) and not re.search(
         r"\b(dress|dresses|top|tops|sale|new|product)\b", blob
     ):
@@ -405,6 +446,8 @@ def select_enrichment_candidates(
     limit: int = MAX_ENRICHMENT_PAGES,
     sitemap_urls: list[str] | None = None,
     sitemap_source: str = "sitemap",
+    wanted_roles: tuple[str, ...] | None = None,
+    strict_roles: bool = False,
 ) -> list[EnrichmentCandidate]:
     """Rank navigation links ahead of equivalent sitemap URLs."""
     ranked: list[EnrichmentCandidate] = []
@@ -415,6 +458,9 @@ def select_enrichment_candidates(
 
     def consider(url: str | None, score: int, source: str) -> None:
         if score <= 0 or not url or url in seen:
+            return
+        role = classify_internal_page(url, root_url=root_url)
+        if wanted_roles and strict_roles and role not in wanted_roles:
             return
         seen.add(url)
         ranked.append(EnrichmentCandidate(url=url, score=score, source=source))
@@ -437,6 +483,17 @@ def select_enrichment_candidates(
             item.url,
         )
     )
+    if wanted_roles:
+        preferred = [
+            item
+            for item in ranked
+            if classify_internal_page(item.url, root_url=root_url) in wanted_roles
+        ]
+        if strict_roles:
+            ranked = preferred
+        elif preferred:
+            extras = [item for item in ranked if item not in preferred]
+            ranked = preferred + extras
     high = [item for item in ranked if item.score >= 70]
     chosen = high[:limit]
     if len(chosen) < limit:
@@ -468,23 +525,50 @@ def enrich_candidate(fetcher: PageFetcher, candidate: Candidate) -> EnrichedEvid
     result.pages.append(homepage)
 
     effective_root = homepage.final_url or root
-    sitemap: SitemapDiscovery = discover_sitemap_urls(fetcher, effective_root)
-    result.sitemap_discovered = sitemap.discovered
-    result.sitemap_source = sitemap.source
-    result.sitemap_url_count = len(sitemap.urls)
-    relevant = [
-        url
-        for url in sitemap.urls
-        if url_enrichment_score(url, effective_root, "") > 0
-    ]
-    result.relevant_sitemap_urls = relevant[:50]
-    sitemap_source = sitemap.source or "sitemap"
-    selected = select_enrichment_candidates(
+    home_signals = extract_business_signals(homepage)
+    decision = assess_enrichment_need(
+        homepage, home_signals, search_query=candidate.search_query or ""
+    )
+    result.enrichment_tier = decision.tier.value
+    result.wanted_roles = list(decision.wanted_roles)
+    if decision.tier is EnrichmentTier.STRONG:
+        result.sitemap_skipped = True
+        return result
+
+    strict = decision.tier is EnrichmentTier.PARTIAL
+    nav_selected = select_enrichment_candidates(
         homepage.links,
         effective_root,
-        sitemap_urls=sitemap.urls,
-        sitemap_source=sitemap_source,
+        wanted_roles=decision.wanted_roles,
+        strict_roles=strict,
     )
+    need_sitemap = not _roles_covered(nav_selected, decision.wanted_roles, effective_root)
+    sitemap_urls: list[str] = []
+    sitemap_source = "sitemap"
+    if need_sitemap:
+        sitemap: SitemapDiscovery = discover_sitemap_urls(fetcher, effective_root)
+        result.sitemap_discovered = sitemap.discovered
+        result.sitemap_source = sitemap.source
+        result.sitemap_url_count = len(sitemap.urls)
+        relevant = [
+            url
+            for url in sitemap.urls
+            if url_enrichment_score(url, effective_root, "") > 0
+        ]
+        result.relevant_sitemap_urls = relevant[:50]
+        sitemap_urls = sitemap.urls
+        sitemap_source = sitemap.source or "sitemap"
+        selected = select_enrichment_candidates(
+            homepage.links,
+            effective_root,
+            sitemap_urls=sitemap_urls,
+            sitemap_source=sitemap_source,
+            wanted_roles=decision.wanted_roles,
+            strict_roles=strict,
+        )
+    else:
+        result.sitemap_skipped = True
+        selected = nav_selected
     result.selected_urls = [item.url for item in selected]
     result.selected_url_sources = [
         {"url": item.url, "source": item.source} for item in selected
@@ -502,6 +586,24 @@ def enrich_candidate(fetcher: PageFetcher, candidate: Candidate) -> EnrichedEvid
         result.successful_urls.append(page.final_url or item.url)
         result.pages.append(page)
     return result
+
+
+def _roles_covered(
+    selected: list[EnrichmentCandidate],
+    wanted_roles: tuple[str, ...],
+    root_url: str,
+) -> bool:
+    if not wanted_roles:
+        return bool(selected)
+    needed = {
+        role for role in wanted_roles if role in {"contact", "location", "about"}
+    }
+    if not needed:
+        return bool(selected)
+    have = {
+        classify_internal_page(item.url, root_url=root_url) for item in selected
+    }
+    return needed.issubset(have)
 
 
 def _fetch_page(

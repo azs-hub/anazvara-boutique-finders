@@ -10,11 +10,39 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-from url_normalization import is_same_site, normalize_url
+from url_normalization import extract_domain, is_same_site, normalize_url
 
 MAX_SITEMAP_INDEX_LEVELS = 1
 MAX_CHILD_SITEMAPS = 5
 MAX_SITEMAP_LOCS = 2_000
+MIN_RELEVANT_LOCS_TO_STOP = 3
+
+RELEVANT_LOC_TOKENS = (
+    "contact",
+    "about",
+    "store",
+    "stores",
+    "location",
+    "locations",
+    "find-us",
+    "findus",
+    "visit",
+    "visit-us",
+    "shop",
+    "boutique",
+    "showroom",
+    "pages",
+    "our-story",
+)
+SKIP_CHILD_TOKENS = (
+    "product",
+    "collection",
+    "category",
+    "image",
+    "asset",
+    "blog",
+    "post",
+)
 
 
 @dataclass
@@ -80,6 +108,23 @@ def site_origin(url: str) -> str:
 
 def discover_sitemap_urls(fetcher, root_url: str) -> SitemapDiscovery:
     """Fetch a small number of sitemap documents and collect page loc URLs."""
+    cache = getattr(fetcher, "_sitemap_discovery_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            fetcher._sitemap_discovery_cache = cache
+        except Exception:
+            cache = {}
+    key = extract_domain(root_url) or site_origin(root_url)
+    if key and key in cache:
+        return cache[key]
+    result = _discover_sitemap_urls_uncached(fetcher, root_url)
+    if key:
+        cache[key] = result
+    return result
+
+
+def _discover_sitemap_urls_uncached(fetcher, root_url: str) -> SitemapDiscovery:
     result = SitemapDiscovery()
     origin = site_origin(root_url)
     if not origin:
@@ -170,6 +215,8 @@ def _ingest_sitemap_docs(
     for seed, source in seeds:
         if not _same_registrable_site(root_url, seed):
             continue
+        if _enough_relevant_locs(page_locs):
+            break
         parsed = _fetch_and_parse(fetcher, seed, result, fetched_docs)
         if parsed is None:
             continue
@@ -179,9 +226,18 @@ def _ingest_sitemap_docs(
         if parsed.kind == "urlset":
             page_locs.extend(parsed.locs)
         elif parsed.kind == "index" and MAX_SITEMAP_INDEX_LEVELS >= 1:
-            for child in parsed.locs:
+            children = sorted(parsed.locs, key=_child_sitemap_priority, reverse=True)
+            for child in children:
                 if children_left[0] <= 0:
                     break
+                if _enough_relevant_locs(page_locs):
+                    break
+                priority = _child_sitemap_priority(child)
+                relevant_so_far = _relevant_loc_count(page_locs)
+                if priority <= 0 and relevant_so_far > 0:
+                    continue
+                if priority <= 1 and relevant_so_far >= 1:
+                    continue
                 if not _same_registrable_site(root_url, child):
                     continue
                 # Every attempted child consumes the budget, including 404,
@@ -197,6 +253,8 @@ def _ingest_sitemap_docs(
         if stop_after_locs and parsed.kind == "urlset" and parsed.locs:
             break
         if stop_after_locs and parsed.kind == "index":
+            break
+        if _enough_relevant_locs(page_locs):
             break
     return parsed_ok
 
@@ -225,3 +283,38 @@ def _same_registrable_site(root_url: str, other: str) -> bool:
 
 def _local_name(tag: str) -> str:
     return (tag or "").split("}", 1)[-1].lower()
+
+
+def _looks_relevant_loc(url: str) -> bool:
+    path = urlparse(url).path.lower()
+    if any(token in path for token in ("/product", "/collection", "/category", "/item")):
+        return False
+    return any(token in path for token in RELEVANT_LOC_TOKENS)
+
+
+def _relevant_loc_count(locs: list[str]) -> int:
+    seen: set[str] = set()
+    count = 0
+    for loc in locs:
+        key = normalize_url(loc) or loc
+        if key in seen:
+            continue
+        seen.add(key)
+        if _looks_relevant_loc(loc):
+            count += 1
+    return count
+
+
+def _enough_relevant_locs(locs: list[str]) -> bool:
+    return _relevant_loc_count(locs) >= MIN_RELEVANT_LOCS_TO_STOP
+
+
+def _child_sitemap_priority(url: str) -> int:
+    blob = url.lower()
+    if any(token in blob for token in SKIP_CHILD_TOKENS):
+        return 0
+    score = 0
+    for token in ("page", "contact", "store", "location", "about", "static"):
+        if token in blob:
+            score += 10
+    return score if score else 1

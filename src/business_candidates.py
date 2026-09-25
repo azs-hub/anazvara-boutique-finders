@@ -21,9 +21,32 @@ from classification import (
     ResultType,
     _host_matches,
 )
-from content_extraction import CITY_NAMES, BusinessSignals, ExtractedLink, PageEvidence
+from content_extraction import (
+    CITY_NAMES,
+    BusinessSignals,
+    ExtractedLink,
+    PageEvidence,
+    StructuredFact,
+)
 from deduplication import normalize_instagram, normalize_phone
 from enrichment import EnrichedEvidence, classify_internal_page
+from structured_evidence import (
+    CHROME_NAME_RE,
+    CONFIDENCE_RANK,
+    GENERIC_NAMES,
+    NAME_SOURCE_RANK,
+    ROUNDUP_TITLE_RE,
+    WOMEN_HIGH_RE,
+    WOMEN_INDICATOR_RE,
+    WOMEN_MEDIUM_RE,
+    clean_business_name,
+    clean_contextual_name,
+    choose_business_name,
+    collect_name_candidates,
+    is_roundup_title,
+    looks_generic_name,
+    pick_best_fact,
+)
 from url_normalization import extract_domain, is_same_site, normalize_url
 
 UNKNOWN = "UNKNOWN"
@@ -31,47 +54,6 @@ MAX_DIRECTORY_BUSINESSES = 40
 LOCATION_CITIES = tuple(
     city for city in CITY_NAMES if city not in {"Bandra", "Khar", "Colaba"}
 )
-
-GENERIC_NAMES = {
-    "home",
-    "welcome",
-    "shop",
-    "shop now",
-    "store",
-    "stores",
-    "boutique",
-    "boutiques",
-    "fashion",
-    "women's fashion",
-    "womens fashion",
-    "clothing",
-    "contact",
-    "about",
-    "about us",
-    "menu",
-    "search",
-    "download the app",
-    "download the app!",
-    "get the app",
-    "sign in",
-    "subscribe",
-    "homepage",
-    "contact us",
-    "contact information",
-    "get in touch",
-    "about us",
-    "locations",
-    "our stores",
-    "order summary",
-    "shopping cart",
-    "country/region",
-    "follow on instagram",
-    "media coverage",
-    "franchisee",
-    "shipping",
-    "create free account now",
-    "disclaimer",
-}
 
 NAV_ANCHORS = {
     "home",
@@ -157,15 +139,6 @@ SKIP_EXTRACT_DOMAINS = (
     }
 )
 
-CHROME_NAME_RE = re.compile(
-    r"\b(cart|checkout|order summary|shopping cart|item added|added to (?:your )?cart|"
-    r"my account|please login|wishlist|order confirmation|login|register)\b",
-    re.IGNORECASE,
-)
-ROUNDUP_TITLE_RE = re.compile(
-    r"\b(best|top|coolest)\b.{0,40}\b(boutique|boutiques|stores?)\b",
-    re.IGNORECASE,
-)
 BOUTIQUE_PHRASE_RE = re.compile(
     r"\b(fashion\s+boutique|clothing\s+boutique|designer\s+boutique|"
     r"women'?s\s+boutique|ladies\s+boutique|boutique)\b",
@@ -176,23 +149,17 @@ STORE_PHRASE_RE = re.compile(
     re.IGNORECASE,
 )
 MULTI_DESIGNER_RE = re.compile(r"\bmulti[\s\-]?designer\b", re.IGNORECASE)
+MULTI_BRAND_RE = re.compile(
+    r"\b(multi[\s\-]?brand|concept\s+store|designer\s+collective|"
+    r"stockists? of|brands we carry)\b",
+    re.IGNORECASE,
+)
 MARKETPLACE_RE = re.compile(
     r"\b(marketplace|shop\s+from\s+multiple\s+sellers)\b", re.IGNORECASE
 )
 NON_TARGET_RE = re.compile(
     r"\b(real\s+estate|hotel|restaurant|salon|spa\b|travel\s+agency|"
     r"shopping\s+mall|news\s+magazine)\b",
-    re.IGNORECASE,
-)
-WOMEN_HIGH_RE = re.compile(
-    r"\b(women'?s\s+(clothing|fashion|wear|boutique|apparel|store)|"
-    r"womenswear|ladies\s+(clothing|wear|boutique|garments)|"
-    r"women\s+dresses|women\s+tops|women\s+apparel)\b",
-    re.IGNORECASE,
-)
-WOMEN_MEDIUM_RE = re.compile(
-    r"\b(dresses|tops|skirts|sarees|sari|lehengas?|ethnic\s+wear|"
-    r"kurtis?|women'?s\s+collections?)\b",
     re.IGNORECASE,
 )
 WOMEN_NEGATIVE_RE = re.compile(
@@ -202,7 +169,9 @@ WOMEN_NEGATIVE_RE = re.compile(
 )
 PHYSICAL_YES_RE = re.compile(
     r"\b(visit\s+us|showroom|store\s+locator|our\s+stores?|physical\s+store|"
-    r"boutique\s+address|walk[\s\-]?in|visit\s+the\s+store|flagship\s+store)\b",
+    r"boutique\s+address|walk[\s\-]?in|visit\s+the\s+store|flagship\s+store|"
+    r"find\s+us|shop\s+in\s+[A-Za-z]+|book\s+an\s+appointment|"
+    r"store\s+hours|opening\s+hours)\b",
     re.IGNORECASE,
 )
 PHYSICAL_NO_RE = re.compile(
@@ -210,6 +179,29 @@ PHYSICAL_NO_RE = re.compile(
     re.IGNORECASE,
 )
 PINCODE_RE = re.compile(r"\b[1-9]\d{5}\b")
+DESIGNER_RE = re.compile(
+    r"\b(fashion\s+designer|designer\s+(label|house|brand|collection)|"
+    r"named designer|couture|atelier|bespoke|made[\s\-]?to[\s\-]?measure)\b",
+    re.IGNORECASE,
+)
+RETAIL_RE = re.compile(
+    r"\b(retail(?:er)?|department\s+store|chain\s+of\s+stores)\b",
+    re.IGNORECASE,
+)
+BRAND_RE = re.compile(
+    r"\b(our\s+(label|collection|collections)|own\s+(brand|label)|"
+    r"shop\s+the\s+collection)\b",
+    re.IGNORECASE,
+)
+ECOMMERCE_RE = re.compile(
+    r"\b(add\s+to\s+cart|buy\s+now|online\s+store|shop\s+now)\b",
+    re.IGNORECASE,
+)
+FASHION_CATEGORY_RE = re.compile(
+    r"\b(ready[\s\-]?to[\s\-]?wear|pr[eé]t|ethnic\s+wear|western\s+wear|"
+    r"bridal|sarees?|lehengas?|kurtis?|dresses|womenswear|apparel)\b",
+    re.IGNORECASE,
+)
 
 
 class BusinessType(str, Enum):
@@ -334,9 +326,13 @@ def identify_business_from_page(
             )
         ]
     if enriched is not None and enriched.pages:
-        name, name_source = _website_business_name_enriched(candidate, enriched)
+        name, name_source, name_confidence = _website_business_name_enriched(
+            candidate, enriched
+        )
     else:
-        name, name_source = _website_business_name(candidate, page_evidence)
+        name, name_source, name_confidence = _website_business_name(
+            candidate, page_evidence
+        )
     extra = ["direct_website"]
     if enriched is not None and enriched.pages:
         extra.append("enriched")
@@ -347,6 +343,7 @@ def identify_business_from_page(
             business_signals,
             name=name,
             name_source=name_source,
+            name_confidence=name_confidence,
             extra_signals=extra,
             enriched=enriched,
         )
@@ -521,8 +518,12 @@ def _merge_pair(
     emails = _unique_optional(
         [left.email, *left.extra_emails, right.email, *right.extra_emails]
     )
+    chosen_name, name_meta = _prefer_stronger_name(left, right)
+    if name_meta:
+        evidence["name_source"] = name_meta[0]
+        evidence["name_confidence"] = name_meta[1]
     return BusinessCandidate(
-        business_name=_prefer_known(left.business_name, right.business_name),
+        business_name=chosen_name,
         website=left.website or right.website,
         instagram=left.instagram or right.instagram,
         facebook=left.facebook or right.facebook,
@@ -561,26 +562,43 @@ def _owner_candidate(
     *,
     name: str,
     name_source: str = "none",
+    name_confidence: str = "LOW",
     extra_signals: list[str] | None = None,
     enriched: EnrichedEvidence | None = None,
 ) -> BusinessCandidate:
     haystack = _haystack(candidate, page_evidence)
     website = page_evidence.final_url or candidate.normalized_url or candidate.url
-    business_type, type_signals = _classify_business_type(haystack, name)
+    facts = _structured_facts(page_evidence, enriched)
+    page_roles = _enrichment_roles(enriched)
+    business_type, type_signals, type_fact = _classify_business_type(
+        haystack,
+        name,
+        facts=facts,
+        page_roles=page_roles,
+        signals=business_signals,
+    )
     fashion = _fashion_relevance(haystack, business_type)
-    women = _women_fashion_relevance(haystack)
-    physical = _physical_store(haystack, business_signals)
-    address = _first(business_signals.address_candidates)
+    women, women_fact = _women_fashion_relevance(
+        haystack, business_type=business_type, facts=facts
+    )
+    physical, physical_fact = _physical_store(
+        haystack,
+        business_signals,
+        facts=facts,
+        page_roles=page_roles,
+    )
+    address, address_fact = _pick_address(business_signals, facts)
     city = _city_for_owner(
         page_evidence,
         business_signals,
         physical,
         primary_address=address,
+        facts=facts,
     )
-    instagram = _pick_instagram(business_signals)
-    facebook = _pick_facebook(business_signals)
-    email = _first(business_signals.emails)
-    phone = _first(business_signals.phones)
+    instagram = _pick_instagram(business_signals) or _fact_value(facts, "sameAs", "instagram")
+    facebook = _pick_facebook(business_signals) or _fact_value(facts, "sameAs", "facebook")
+    email = _first(business_signals.emails) or _fact_value(facts, "email")
+    phone = _first(business_signals.phones) or _fact_value(facts, "telephone")
     signals = list(extra_signals or []) + type_signals
     if name != UNKNOWN:
         signals.append("business_name")
@@ -595,6 +613,16 @@ def _owner_candidate(
         has_contact=bool(instagram or facebook or phone or email or address),
         physical=physical,
         has_website=bool(website),
+    )
+    field_evidence = _field_evidence_rows(
+        name=name,
+        name_source=name_source,
+        name_confidence=name_confidence,
+        type_fact=type_fact,
+        women_fact=women_fact,
+        physical_fact=physical_fact,
+        address_fact=address_fact,
+        facts=facts,
     )
     return BusinessCandidate(
         business_name=name,
@@ -616,7 +644,9 @@ def _owner_candidate(
             "source_url": candidate.normalized_url or candidate.url,
             "source_type": candidate.result_type.value,
             "name_source": name_source,
+            "name_confidence": name_confidence,
             "signals": signals,
+            "field_evidence": field_evidence,
             **(_enrichment_evidence(enriched) if enriched is not None else {}),
         },
         confidence=confidence,
@@ -627,16 +657,14 @@ def _owner_candidate(
 
 def _website_business_name(
     candidate: Candidate, page_evidence: PageEvidence
-) -> tuple[str, str]:
-    title = (page_evidence.title or candidate.title or "").strip()
-    for raw, source in (
-        (title, "page_title"),
-        (_first(page_evidence.headings), "heading"),
-    ):
-        cleaned = _clean_name(raw or "")
-        if cleaned != UNKNOWN:
-            return cleaned, source
-    return UNKNOWN, "none"
+) -> tuple[str, str, str]:
+    return choose_business_name(
+        collect_name_candidates(
+            page=page_evidence,
+            search_title=candidate.title or "",
+            page_role="homepage",
+        )
+    )
 
 
 def _homepage_from_enriched(enriched: EnrichedEvidence) -> PageEvidence | None:
@@ -651,38 +679,28 @@ def _homepage_from_enriched(enriched: EnrichedEvidence) -> PageEvidence | None:
 
 def _website_business_name_enriched(
     candidate: Candidate, enriched: EnrichedEvidence
-) -> tuple[str, str]:
-    """Prefer About, then homepage, then contact/store titles."""
-    buckets: dict[str, list[PageEvidence]] = {
-        "about": [],
-        "homepage": [],
-        "contact": [],
-        "location": [],
-        "other": [],
-    }
+) -> tuple[str, str, str]:
+    """Prefer structured names, then About/homepage, never weaker later chrome."""
+    found = []
     for page in enriched.pages:
         role = classify_internal_page(
             page.final_url or page.source_url, root_url=enriched.root_url
         )
-        buckets.setdefault(role, []).append(page)
-    ordered: list[tuple[PageEvidence, str]] = []
-    for role, source in (
-        ("about", "about_page"),
-        ("homepage", "homepage"),
-        ("contact", "contact_page"),
-        ("location", "store_page"),
-    ):
-        for page in buckets.get(role, []):
-            ordered.append((page, source))
-    for page, source in ordered:
-        for raw, kind in (
-            (page.title or "", f"{source}_title"),
-            (_first(page.headings) or "", f"{source}_heading"),
-        ):
-            cleaned = _clean_contextual_name(raw, source)
-            if cleaned != UNKNOWN:
-                return cleaned, kind
-    return _website_business_name(candidate, enriched.as_page_evidence())
+        page_role = role if role in {"homepage", "about", "contact", "location"} else "other"
+        found.extend(
+            collect_name_candidates(
+                page=page,
+                search_title=candidate.title or "",
+                page_role=page_role,
+            )
+        )
+    name, source, confidence = choose_business_name(found)
+    if name != UNKNOWN:
+        return name, source, confidence
+    home = _homepage_from_enriched(enriched)
+    if home:
+        return _website_business_name(candidate, home)
+    return UNKNOWN, "none", "LOW"
 
 
 def _enrichment_evidence(enriched: EnrichedEvidence) -> dict:
@@ -701,101 +719,152 @@ def _enrichment_evidence(enriched: EnrichedEvidence) -> dict:
 
 
 def _clean_name(raw: str) -> str:
-    text = re.sub(r"\s+", " ", raw).strip()
-    if not text:
-        return UNKNOWN
-    if _is_roundup_title(text) or _looks_generic(text):
-        return UNKNOWN
-    parts = re.split(r"\s*[-–—|]\s*", text, maxsplit=1)
-    if len(parts) == 2:
-        left = parts[0].strip()
-        if left and not _looks_generic(left) and not _is_roundup_title(left) and len(left.split()) <= 6:
-            text = left
-    text = re.sub(r"\s*[\(\[]@[^)\]]+[\)\]]", "", text).strip()
-    if _looks_generic(text) or _is_roundup_title(text) or len(text) < 2:
-        return UNKNOWN
-    if len(text) > 80:
-        return UNKNOWN
-    if len(text.split()) > 8:
-        return UNKNOWN
-    return text
+    return clean_business_name(raw)
 
 
 def _clean_contextual_name(raw: str, source: str) -> str:
-    """Remove page-label chrome only when the page role supports it."""
-    text = raw
-    if source == "about_page":
-        text = re.sub(r"^\s*about(?:\s+us)?\s*[:\-–—]?\s+", "", text, flags=re.IGNORECASE)
-        if ":" in text:
-            left = text.split(":", 1)[0].strip()
-            if 1 <= len(left.split()) <= 6 and _clean_name(left) != UNKNOWN:
-                text = left
-    elif source == "contact_page":
-        text = re.sub(r"^\s*contact(?:\s+us)?\s*[:\-–—]?\s+", "", text, flags=re.IGNORECASE)
-    return _clean_name(text)
+    return clean_contextual_name(raw, source)
 
 
 def _looks_generic(text: str) -> bool:
-    lowered = text.strip().lower().rstrip("!.")
-    if lowered in GENERIC_NAMES:
-        return True
-    if CHROME_NAME_RE.search(lowered):
-        return True
-    if re.fullmatch(r"women'?s fashion", lowered):
-        return True
-    if re.search(r"\bboutiques in\b", lowered):
-        return True
-    if "download" in lowered and "app" in lowered:
-        return True
-    if "follow" in lowered and "instagram" in lowered:
-        return True
-    if re.fullmatch(r"women'?s\s+[\w\s-]*clothing\s+online", lowered):
-        return True
-    if lowered.startswith(("http://", "https://", "www.")):
-        return True
-    if re.match(r"^https?://", text.strip(), re.IGNORECASE):
-        return True
-    return False
+    return looks_generic_name(text)
 
 
 def _is_roundup_title(text: str) -> bool:
-    if not text:
-        return False
-    if ROUNDUP_TITLE_RE.search(text):
-        return True
-    return bool(
-        re.search(r"\b\d+\s+best\b", text, re.IGNORECASE)
-        or re.search(r"\bboutiques?\s+in\s+[A-Za-z]", text, re.IGNORECASE)
-    )
+    return is_roundup_title(text)
 
 
 def _classify_business_type(
-    haystack: str, name: str
-) -> tuple[BusinessType, list[str]]:
-    signals: list[str] = []
+    haystack: str,
+    name: str,
+    *,
+    facts: list[StructuredFact] | None = None,
+    page_roles: list[str] | None = None,
+    signals: BusinessSignals | None = None,
+) -> tuple[BusinessType, list[str], dict | None]:
+    signals_out: list[str] = []
+    facts = facts or []
+    page_roles = page_roles or []
     if NON_TARGET_RE.search(haystack) and not BOUTIQUE_PHRASE_RE.search(haystack):
-        return BusinessType.UNKNOWN, ["non_target_keyword"]
+        return BusinessType.UNKNOWN, ["non_target_keyword"], None
     if MARKETPLACE_RE.search(haystack):
-        return BusinessType.MARKETPLACE, ["marketplace_keyword"]
+        return BusinessType.MARKETPLACE, ["marketplace_keyword"], {
+            "field": "business_type",
+            "value": BusinessType.MARKETPLACE.value,
+            "source": "homepage_text",
+            "evidence": "marketplace keyword",
+            "confidence": "HIGH",
+        }
+
+    boutique_term = bool(BOUTIQUE_PHRASE_RE.search(haystack))
+    store_term = bool(STORE_PHRASE_RE.search(haystack))
+    designer_term = bool(DESIGNER_RE.search(haystack) or _has_phrase(haystack, "designer"))
+    women_term = bool(WOMEN_HIGH_RE.search(haystack) or WOMEN_MEDIUM_RE.search(haystack))
+    physical_addr = bool(
+        (signals and signals.address_candidates)
+        or any(fact.field == "address" for fact in facts)
+    )
+    store_page = "location" in page_roles
+    local_business = any(
+        (fact.schema_type or "").lower()
+        in {"localbusiness", "store", "clothingstore", "fashionstore"}
+        or fact.source == "jsonld_localbusiness"
+        for fact in facts
+    )
+    visit_us = bool(PHYSICAL_YES_RE.search(haystack))
+    fashion_cats = bool(FASHION_CATEGORY_RE.search(haystack))
+    boutique_signals = [
+        flag
+        for flag, enabled in (
+            ("boutique_term", boutique_term),
+            ("women_term", women_term),
+            ("physical_address", physical_addr),
+            ("store_page", store_page),
+            ("local_business", local_business),
+            ("visit_language", visit_us),
+            ("fashion_category", fashion_cats),
+        )
+        if enabled
+    ]
+    if boutique_term and len(boutique_signals) >= 3:
+        signals_out.append("boutique_evidence_combination")
+        return BusinessType.BOUTIQUE, signals_out, _type_fact(
+            BusinessType.BOUTIQUE, "homepage_text", ",".join(boutique_signals), "HIGH"
+        )
+    if boutique_term and name != UNKNOWN and (
+        women_term or physical_addr or local_business or visit_us
+    ):
+        signals_out.append("boutique_phrase")
+        return BusinessType.BOUTIQUE, signals_out, _type_fact(
+            BusinessType.BOUTIQUE, "homepage_text", "boutique + independent signal", "HIGH"
+        )
+
     boutique_hits = len(BOUTIQUE_PHRASE_RE.findall(haystack))
     store_hits = len(STORE_PHRASE_RE.findall(haystack))
-    if MULTI_DESIGNER_RE.search(haystack) and (boutique_hits or store_hits):
-        return BusinessType.MULTI_DESIGNER, ["multi_designer"]
+    if (MULTI_DESIGNER_RE.search(haystack) or MULTI_BRAND_RE.search(haystack)) and (
+        boutique_hits or store_hits or store_term
+    ):
+        return BusinessType.MULTI_DESIGNER, ["multi_designer"], _type_fact(
+            BusinessType.MULTI_DESIGNER, "homepage_text", "multi-designer/store", "HIGH"
+        )
     if boutique_hits >= 2 or (
         boutique_hits >= 1 and (store_hits or _has_phrase(haystack, "designer"))
     ):
-        signals.append("boutique_phrase")
-        return BusinessType.BOUTIQUE, signals
+        signals_out.append("boutique_phrase")
+        return BusinessType.BOUTIQUE, signals_out, _type_fact(
+            BusinessType.BOUTIQUE, "homepage_text", "boutique phrase", "MEDIUM"
+        )
     if boutique_hits == 1 and name != UNKNOWN:
-        signals.append("boutique_phrase")
-        return BusinessType.BOUTIQUE, signals
+        signals_out.append("boutique_phrase")
+        return BusinessType.BOUTIQUE, signals_out, _type_fact(
+            BusinessType.BOUTIQUE, "homepage_text", "named boutique", "MEDIUM"
+        )
+    if designer_term and (
+        store_hits
+        or fashion_cats
+        or _has_phrase(haystack, "collection")
+        or _has_phrase(haystack, "atelier")
+        or _has_phrase(haystack, "studio")
+        or _has_phrase(haystack, "couture")
+        or _has_phrase(haystack, "bespoke")
+    ):
+        return BusinessType.DESIGNER, ["designer_evidence"], _type_fact(
+            BusinessType.DESIGNER, "homepage_text", "designer combination", "HIGH"
+        )
     if _has_phrase(haystack, "designer") and store_hits:
-        return BusinessType.DESIGNER, ["designer_store"]
+        return BusinessType.DESIGNER, ["designer_store"], _type_fact(
+            BusinessType.DESIGNER, "homepage_text", "designer store", "MEDIUM"
+        )
+    if RETAIL_RE.search(haystack) and (physical_addr or store_page or store_hits):
+        return BusinessType.RETAILER, ["retail_location"], _type_fact(
+            BusinessType.RETAILER, "homepage_text", "retail + location", "MEDIUM"
+        )
     if store_hits >= 2:
-        return BusinessType.RETAILER, ["clothing_store"]
+        return BusinessType.RETAILER, ["clothing_store"], _type_fact(
+            BusinessType.RETAILER, "homepage_text", "clothing store", "MEDIUM"
+        )
+    if (
+        BRAND_RE.search(haystack)
+        or (_has_phrase(haystack, "brand") and (store_hits or ECOMMERCE_RE.search(haystack)))
+    ) and (fashion_cats or ECOMMERCE_RE.search(haystack) or designer_term):
+        return BusinessType.BRAND, ["brand_evidence"], _type_fact(
+            BusinessType.BRAND, "homepage_text", "own-label/ecommerce", "MEDIUM"
+        )
     if _has_phrase(haystack, "brand") and store_hits:
-        return BusinessType.BRAND, ["brand_store"]
-    return BusinessType.UNKNOWN, []
+        return BusinessType.BRAND, ["brand_store"], _type_fact(
+            BusinessType.BRAND, "homepage_text", "brand store", "MEDIUM"
+        )
+    return BusinessType.UNKNOWN, [], None
+
+
+def _type_fact(value: BusinessType, source: str, evidence: str, confidence: str) -> dict:
+    return {
+        "field": "business_type",
+        "value": value.value,
+        "source": source,
+        "evidence": evidence,
+        "confidence": confidence,
+    }
 
 
 def _fashion_relevance(haystack: str, business_type: BusinessType) -> Relevance:
@@ -818,28 +887,144 @@ def _fashion_relevance(haystack: str, business_type: BusinessType) -> Relevance:
     return Relevance.UNKNOWN
 
 
-def _women_fashion_relevance(haystack: str) -> Relevance:
+def _women_fashion_relevance(
+    haystack: str,
+    *,
+    business_type: BusinessType | None = None,
+    facts: list[StructuredFact] | None = None,
+) -> tuple[Relevance, dict | None]:
+    del facts
     if WOMEN_NEGATIVE_RE.search(haystack) and not WOMEN_HIGH_RE.search(haystack):
-        return Relevance.LOW
+        return Relevance.LOW, {
+            "field": "women_fashion_relevance",
+            "value": Relevance.LOW.value,
+            "source": "homepage_text",
+            "evidence": "negative women's-fashion language",
+            "confidence": "HIGH",
+        }
     if WOMEN_HIGH_RE.search(haystack):
-        return Relevance.HIGH
+        return Relevance.HIGH, {
+            "field": "women_fashion_relevance",
+            "value": Relevance.HIGH.value,
+            "source": "homepage_text",
+            "evidence": "explicit women's clothing/fashion",
+            "confidence": "HIGH",
+        }
     medium_hits = WOMEN_MEDIUM_RE.findall(haystack)
-    if len(medium_hits) >= 2:
-        return Relevance.MEDIUM
-    return Relevance.UNKNOWN
+    has_indicator = bool(WOMEN_INDICATOR_RE.search(haystack))
+    if len(medium_hits) >= 2 or (medium_hits and has_indicator):
+        return Relevance.MEDIUM, {
+            "field": "women_fashion_relevance",
+            "value": Relevance.MEDIUM.value,
+            "source": "homepage_text",
+            "evidence": "fashion categories with women's indicators",
+            "confidence": "MEDIUM",
+        }
+    if (
+        business_type
+        in {BusinessType.BOUTIQUE, BusinessType.DESIGNER, BusinessType.MULTI_DESIGNER}
+        and has_indicator
+        and medium_hits
+    ):
+        return Relevance.MEDIUM, {
+            "field": "women_fashion_relevance",
+            "value": Relevance.MEDIUM.value,
+            "source": "homepage_text",
+            "evidence": "boutique/designer plus women's indicator",
+            "confidence": "MEDIUM",
+        }
+    return Relevance.UNKNOWN, None
 
 
-def _physical_store(haystack: str, signals: BusinessSignals) -> PhysicalStore:
+def _physical_store(
+    haystack: str,
+    signals: BusinessSignals,
+    *,
+    facts: list[StructuredFact] | None = None,
+    page_roles: list[str] | None = None,
+) -> tuple[PhysicalStore, dict | None]:
+    facts = facts or []
+    page_roles = page_roles or []
     if PHYSICAL_NO_RE.search(haystack):
-        return PhysicalStore.NO
-    has_address = bool(signals.address_candidates)
-    has_pin = any(PINCODE_RE.search(item) for item in signals.address_candidates)
+        return PhysicalStore.NO, {
+            "field": "physical_store",
+            "value": PhysicalStore.NO.value,
+            "source": "homepage_text",
+            "evidence": "online-only language",
+            "confidence": "HIGH",
+        }
+    has_address = bool(signals.address_candidates) or any(
+        fact.field == "address" for fact in facts
+    )
+    has_pin = any(PINCODE_RE.search(item) for item in signals.address_candidates) or any(
+        PINCODE_RE.search(fact.value) for fact in facts if fact.field == "address"
+    )
     has_phrase = bool(PHYSICAL_YES_RE.search(haystack))
+    has_store_page = "location" in page_roles
+    local_fact = next(
+        (
+            fact
+            for fact in facts
+            if fact.field == "physical_store"
+            or fact.source == "jsonld_localbusiness"
+            or (fact.schema_type or "").lower()
+            in {"localbusiness", "store", "clothingstore", "fashionstore"}
+        ),
+        None,
+    )
+    postal = any(
+        fact.source == "jsonld_postaladdress" or fact.field in {"address", "addressLocality"}
+        for fact in facts
+    )
+    if local_fact and (has_address or postal or has_store_page or has_phrase):
+        return PhysicalStore.YES, {
+            "field": "physical_store",
+            "value": PhysicalStore.YES.value,
+            "source": local_fact.source,
+            "evidence": local_fact.evidence,
+            "confidence": "HIGH",
+        }
+    if local_fact:
+        return PhysicalStore.YES, {
+            "field": "physical_store",
+            "value": PhysicalStore.YES.value,
+            "source": local_fact.source,
+            "evidence": local_fact.evidence or "LocalBusiness",
+            "confidence": "HIGH",
+        }
+    if postal and (has_pin or has_phrase or has_store_page):
+        return PhysicalStore.YES, {
+            "field": "physical_store",
+            "value": PhysicalStore.YES.value,
+            "source": "jsonld_postaladdress",
+            "evidence": "PostalAddress",
+            "confidence": "HIGH",
+        }
     if has_address and has_pin:
-        return PhysicalStore.YES
+        return PhysicalStore.YES, {
+            "field": "physical_store",
+            "value": PhysicalStore.YES.value,
+            "source": "homepage_text",
+            "evidence": "address with pincode",
+            "confidence": "HIGH",
+        }
     if has_phrase and has_address:
-        return PhysicalStore.YES
-    return PhysicalStore.UNKNOWN
+        return PhysicalStore.YES, {
+            "field": "physical_store",
+            "value": PhysicalStore.YES.value,
+            "source": "location_page" if has_store_page else "homepage_text",
+            "evidence": "visit/store language with address",
+            "confidence": "HIGH",
+        }
+    if has_store_page and has_address:
+        return PhysicalStore.YES, {
+            "field": "physical_store",
+            "value": PhysicalStore.YES.value,
+            "source": "location_page",
+            "evidence": "store page with address",
+            "confidence": "MEDIUM",
+        }
+    return PhysicalStore.UNKNOWN, None
 
 
 def _city_for_owner(
@@ -848,7 +1033,17 @@ def _city_for_owner(
     physical: PhysicalStore,
     *,
     primary_address: str | None,
+    facts: list[StructuredFact] | None = None,
 ) -> str:
+    facts = facts or []
+    localities = [
+        fact.value
+        for fact in facts
+        if fact.field in {"city", "addressLocality"} and fact.value
+    ]
+    unique_local = list(dict.fromkeys(localities))
+    if len(unique_local) == 1:
+        return unique_local[0]
     address_cities: list[str] = []
     for snippet in signals.address_candidates:
         address_cities.extend(_cities_in_text(snippet))
@@ -1069,14 +1264,142 @@ def _pick_facebook(signals: BusinessSignals) -> str | None:
 
 
 def _haystack(candidate: Candidate, evidence: PageEvidence) -> str:
+    structured_bits = [
+        fact.value
+        for fact in evidence.structured_facts
+        if fact.field in {"name", "address", "addressLocality", "city"}
+    ]
     parts = [
         candidate.title,
         evidence.title,
+        evidence.og_site_name,
+        evidence.meta_brand,
         evidence.meta_description,
         " ".join(evidence.headings),
+        " ".join(structured_bits),
         evidence.text[:24000],
     ]
     return " ".join(part for part in parts if part)
+
+
+def _structured_facts(
+    page_evidence: PageEvidence, enriched: EnrichedEvidence | None
+) -> list[StructuredFact]:
+    facts = list(page_evidence.structured_facts)
+    if enriched is None:
+        return facts
+    for page in enriched.pages:
+        facts.extend(page.structured_facts)
+    return facts
+
+
+def _enrichment_roles(enriched: EnrichedEvidence | None) -> list[str]:
+    if enriched is None:
+        return []
+    roles = []
+    for page in enriched.pages:
+        roles.append(
+            classify_internal_page(
+                page.final_url or page.source_url, root_url=enriched.root_url
+            )
+        )
+    return roles
+
+
+def _pick_address(
+    signals: BusinessSignals, facts: list[StructuredFact]
+) -> tuple[str | None, dict | None]:
+    structured = [fact for fact in facts if fact.field == "address" and fact.value]
+    best = pick_best_fact(structured)
+    if best:
+        return best.value, {
+            "field": "address",
+            "value": best.value,
+            "source": best.source,
+            "evidence": best.evidence,
+            "confidence": best.confidence,
+        }
+    text_address = _first(signals.address_candidates)
+    if text_address:
+        return text_address, {
+            "field": "address",
+            "value": text_address,
+            "source": "homepage_text",
+            "evidence": text_address,
+            "confidence": "MEDIUM",
+        }
+    return None, None
+
+
+def _fact_value(
+    facts: list[StructuredFact], field: str, contains: str | None = None
+) -> str | None:
+    matches = [fact for fact in facts if fact.field == field and fact.value]
+    if contains:
+        matches = [fact for fact in matches if contains in fact.value.lower()]
+        if field == "sameAs" and contains == "facebook":
+            matches = [
+                fact
+                for fact in matches
+                if "facebook.com" in fact.value.lower() or "fb.com" in fact.value.lower()
+            ]
+    best = pick_best_fact(matches)
+    return best.value if best else None
+
+
+def _field_evidence_rows(
+    *,
+    name: str,
+    name_source: str,
+    name_confidence: str,
+    type_fact: dict | None,
+    women_fact: dict | None,
+    physical_fact: dict | None,
+    address_fact: dict | None,
+    facts: list[StructuredFact],
+) -> list[dict]:
+    rows: list[dict] = []
+    if name != UNKNOWN:
+        rows.append(
+            {
+                "field": "name",
+                "value": name,
+                "source": name_source,
+                "evidence": name,
+                "confidence": name_confidence,
+            }
+        )
+    for item in (type_fact, women_fact, physical_fact, address_fact):
+        if item:
+            rows.append(item)
+    seen = {(row["field"], row["source"], row["value"]) for row in rows}
+    for fact in facts:
+        key = (fact.field, fact.source, fact.value)
+        if key in seen:
+            continue
+        if fact.field not in {
+            "telephone",
+            "email",
+            "sameAs",
+            "url",
+            "addressLocality",
+            "addressRegion",
+            "physical_store",
+        }:
+            continue
+        rows.append(
+            {
+                "field": fact.field,
+                "value": fact.value,
+                "source": fact.source,
+                "evidence": fact.evidence,
+                "confidence": fact.confidence,
+            }
+        )
+        seen.add(key)
+        if len(rows) >= 24:
+            break
+    return rows
 
 
 def _first(values: list[str]) -> str | None:
@@ -1097,6 +1420,32 @@ def _prefer_known(left: str, right: str) -> str:
     if right and right != UNKNOWN:
         return right
     return left or right or UNKNOWN
+
+
+def _prefer_stronger_name(
+    left: BusinessCandidate, right: BusinessCandidate
+) -> tuple[str, tuple[str, str] | None]:
+    left_name = left.business_name or UNKNOWN
+    right_name = right.business_name or UNKNOWN
+    left_source = str((left.evidence or {}).get("name_source") or "none")
+    right_source = str((right.evidence or {}).get("name_source") or "none")
+    left_conf = str((left.evidence or {}).get("name_confidence") or "LOW")
+    right_conf = str((right.evidence or {}).get("name_confidence") or "LOW")
+    if left_name == UNKNOWN and right_name != UNKNOWN:
+        return right_name, (right_source, right_conf)
+    if right_name == UNKNOWN:
+        return left_name, (left_source, left_conf) if left_name != UNKNOWN else None
+    left_rank = (
+        NAME_SOURCE_RANK.get(left_source, 0),
+        CONFIDENCE_RANK.get(left_conf, 0),
+    )
+    right_rank = (
+        NAME_SOURCE_RANK.get(right_source, 0),
+        CONFIDENCE_RANK.get(right_conf, 0),
+    )
+    if right_rank > left_rank:
+        return right_name, (right_source, right_conf)
+    return left_name, (left_source, left_conf)
 
 
 def _prefer_enum(left, right, unknown):

@@ -115,5 +115,46 @@ class ContentExtractionTests(unittest.TestCase):
         self.assertEqual(extract_business_signals(evidence).address_candidates, [])
 
 
+    def test_jsonld_localbusiness_and_og_site_name(self) -> None:
+        html = """
+        <html><head>
+          <meta property="og:site_name" content="Rozina">
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "LocalBusiness",
+            "name": "Rozina",
+            "telephone": "+91 22 1234 5678",
+            "email": "hello@rozina.example",
+            "sameAs": ["https://instagram.com/rozina"],
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "12 Linking Road",
+              "addressLocality": "Mumbai",
+              "addressRegion": "MH",
+              "postalCode": "400050"
+            }
+          }
+          </script>
+        </head><body><h1>Order Summary</h1></body></html>
+        """
+        evidence = extract_page_evidence(
+            html, source_url="https://rozina.example", final_url="https://rozina.example"
+        )
+        self.assertEqual(evidence.og_site_name, "Rozina")
+        sources = {fact.source for fact in evidence.structured_facts}
+        self.assertIn("jsonld_localbusiness", sources)
+        self.assertIn("og_site_name", sources)
+        fields = {(fact.field, fact.value) for fact in evidence.structured_facts}
+        self.assertIn(("name", "Rozina"), fields)
+        self.assertIn(("telephone", "+91 22 1234 5678"), fields)
+        self.assertIn(("email", "hello@rozina.example"), fields)
+        self.assertIn(("addressLocality", "Mumbai"), fields)
+        signals = extract_business_signals(evidence)
+        self.assertIn("hello@rozina.example", signals.emails)
+        self.assertTrue(any("instagram.com/rozina" in url for url in signals.social_urls))
+        self.assertIn("Mumbai", signals.city_mentions)
+
+
 if __name__ == "__main__":
     unittest.main()
