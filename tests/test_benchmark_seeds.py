@@ -269,6 +269,7 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(attached.evidence["entity_origin"], ORIGIN_DIRECT)
         self.assertEqual(attached.evidence["seed_origin"], ORIGIN_SEED)
         self.assertEqual(attached.evidence["reference_expected_stockist"], "YES")
+        self.assertIsNone(attached.evidence.get("reference_expected_lead"))
         self.assertEqual(
             attached.evidence["entity_verified_from"],
             f"{VERIFIED_WEBSITE} + {VERIFIED_INSTAGRAM}",
@@ -305,6 +306,11 @@ class ProvenanceTests(unittest.TestCase):
                 "identity_sources": [VERIFIED_WEBSITE, VERIFIED_INSTAGRAM],
                 "qwen_reached": True,
                 "potential_stockist": "YES",
+                "stockist_lead": "YES",
+                "website": "https://rangeelagoa.com",
+                "email": "hello@rangeelagoa.com",
+                "phone": "+91 12345",
+                "address": None,
                 "validation": "passed",
             },
             {
@@ -318,6 +324,7 @@ class ProvenanceTests(unittest.TestCase):
                 "identity_sources": [VERIFIED_INSTAGRAM, VERIFIED_GOOGLE],
                 "qwen_reached": True,
                 "potential_stockist": "UNKNOWN",
+                "stockist_lead": "UNKNOWN",
                 "validation": "n/a",
             },
         ]
@@ -329,6 +336,13 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(metrics["seeds_with_any_verified_identity"], 2)
         self.assertEqual(metrics["seeds_with_multiple_identity_sources"], 2)
         self.assertEqual(metrics["seeds_stockist_yes"], 1)
+        self.assertEqual(metrics["stockist_leads_yes"], 1)
+        self.assertEqual(metrics["stockist_leads_unknown"], 1)
+        self.assertEqual(metrics["stockist_leads_with_website"], 1)
+        self.assertEqual(metrics["stockist_leads_with_email"], 1)
+        self.assertEqual(metrics["stockist_leads_with_phone"], 1)
+        self.assertEqual(metrics["stockist_leads_without_address"], 1)
+        self.assertEqual(metrics["stockist_leads_with_multiple_contacts"], 1)
         self.assertEqual(metrics["seeds_without_official_website"], 1)
 
 

@@ -103,6 +103,8 @@ class StockistBenchmarkHelperTests(unittest.TestCase):
         results = {item["label"]: item for item in match_stockist_references(rows)}
         self.assertTrue(results["Villa Mor"]["passed"])
         self.assertTrue(results["Rozina"]["passed"])
+        self.assertEqual(results["Rangeela Goa"]["expected_lead"], "YES")
+        self.assertIsNone(results["Rangeela Goa"]["expected_stockist"])
         self.assertIn("Yellow House Parra", results)
         self.assertIn("Rangeela Goa", results)
         self.assertIn("Paper Boat Collective", results)

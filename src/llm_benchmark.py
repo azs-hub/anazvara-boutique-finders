@@ -55,22 +55,35 @@ from local_llm import (
     is_rules_confident,
     maybe_classify_with_local_llm,
 )
+from stockist_lead import attach_stockist_lead, lead_of
 from page_inspection import inspect_candidate
 from searxng_provider import SearXNGSearchProvider
 
 DEFAULT_QUERY = "women's fashion boutique Mumbai"
 STOCKIST_REFERENCE_EXAMPLES = (
-    {"label": "Villa Mor", "expected": "YES", "needles": ("villa mor", "villamor")},
+    {
+        "label": "Villa Mor",
+        "expected": "YES",
+        "expected_lead": "YES",
+        "needles": ("villa mor", "villamor"),
+    },
     {"label": "Rozina", "expected": "NO", "needles": ("rozina",)},
     {
         "label": "Yellow House Parra",
         "expected": "YES",
+        "expected_lead": "YES",
         "needles": ("yellow house parra", "yellowhouseparra"),
     },
-    {"label": "Rangeela Goa", "expected": "YES", "needles": ("rangeela goa", "rangeelagoa")},
+    {
+        "label": "Rangeela Goa",
+        "expected": None,
+        "expected_lead": "YES",
+        "needles": ("rangeela goa", "rangeelagoa"),
+    },
     {
         "label": "Paper Boat Collective",
-        "expected": "YES",
+        "expected": None,
+        "expected_lead": "YES",
         "needles": ("paper boat collective", "paperboatcollective"),
     },
 )
@@ -136,6 +149,7 @@ def identification_block(rows: list[BusinessCandidate], *, after_ai: bool = Fals
             "City": sum(1 for row in rows if _has_value(row.city)),
         },
         "potential_stockist": stockist_counts(rows, after_ai=after_ai),
+        "stockist_lead": lead_counts(rows),
     }
 
 
@@ -152,6 +166,13 @@ def stockist_counts(rows: list[BusinessCandidate], *, after_ai: bool = True) -> 
     counts = {"YES": 0, "NO": 0, "UNKNOWN": 0}
     for row in rows:
         counts[stockist_of(row, after_ai=after_ai)] += 1
+    return counts
+
+
+def lead_counts(rows: list[BusinessCandidate]) -> dict[str, int]:
+    counts = {"YES": 0, "NO": 0, "UNKNOWN": 0}
+    for row in rows:
+        counts[lead_of(row)] += 1
     return counts
 
 
@@ -207,15 +228,23 @@ def match_stockist_references(rows: list[BusinessCandidate]) -> list[dict]:
             if any(needle in _reference_haystack(row) for needle in example["needles"])
         ]
         after_values = [stockist_of(row, after_ai=True) for row in matches]
-        expected = example["expected"]
+        lead_values = [lead_of(row) for row in matches]
+        expected = example.get("expected")
+        expected_lead = example.get("expected_lead")
+        stockist_ok = expected is None or all(value == expected for value in after_values)
+        lead_ok = expected_lead is None or all(value == expected_lead for value in lead_values)
         results.append(
             {
                 "label": example["label"],
                 "expected_stockist": expected,
+                "expected_lead": expected_lead,
                 "found": bool(matches),
                 "matches": len(matches),
                 "stockist_after_ai": after_values,
-                "passed": bool(matches) and all(value == expected for value in after_values),
+                "lead_after": lead_values,
+                "stockist_passed": bool(matches) and stockist_ok,
+                "lead_passed": bool(matches) and lead_ok,
+                "passed": bool(matches) and stockist_ok,
             }
         )
     return results
@@ -315,6 +344,9 @@ def evaluate_candidates(
                 signals=signals_for_llm,
                 enriched=enriched,
             )
+            attached = attach_stockist_lead(
+                attached, page_for_llm, signals_for_llm, enriched
+            )
             if result.attempted:
                 qwen_calls += 1
                 qwen_seconds += result.elapsed_seconds
@@ -405,6 +437,7 @@ def evaluate_candidates(
         "stockist": {
             "before_ai": stockist_counts(rules_deduped, after_ai=False),
             "after_ai": stockist_counts(llm_deduped, after_ai=True),
+            "leads": lead_counts(llm_deduped),
             "reference_examples": match_stockist_references(llm_deduped),
         },
         "scraper_failures": scraper_failures,
@@ -441,6 +474,7 @@ def _print_ident(title: str, block: dict) -> None:
     print(f"confidence: {block['confidence']}")
     print(f"contact: {block['contact']}")
     print(f"potential_stockist: {block['potential_stockist']}")
+    print(f"stockist_lead: {block.get('stockist_lead')}")
     print()
 
 
@@ -461,6 +495,9 @@ def print_summary(report: dict) -> None:
     print(f"YES before/after: {stockist['before_ai']['YES']} / {stockist['after_ai']['YES']}")
     print(f"NO before/after: {stockist['before_ai']['NO']} / {stockist['after_ai']['NO']}")
     print(f"UNKNOWN before/after: {stockist['before_ai']['UNKNOWN']} / {stockist['after_ai']['UNKNOWN']}")
+    print("STOCKIST LEAD")
+    leads = stockist.get("leads") or {"YES": 0, "NO": 0, "UNKNOWN": 0}
+    print(f"YES/NO/UNKNOWN: {leads.get('YES', 0)} / {leads.get('NO', 0)} / {leads.get('UNKNOWN', 0)}")
     print(f"Records changed by AI: {llm['records_changed_by_ai']}")
     print(f"Records improved: {llm['records_improved']}")
     print(f"Records weakened: {llm['records_weakened']}")
@@ -469,9 +506,16 @@ def print_summary(report: dict) -> None:
     print("REFERENCE EXAMPLES (benchmark only, not ground truth)")
     for item in stockist["reference_examples"]:
         status = "PASS" if item["passed"] else ("MISSING" if not item["found"] else "FAIL")
+        lead_status = (
+            "PASS"
+            if item.get("lead_passed")
+            else ("MISSING" if not item["found"] else "FAIL")
+        )
         print(
-            f"{item['label']}: expected {item['expected_stockist']}, "
-            f"after={item['stockist_after_ai'] or '—'} [{status}]"
+            f"{item['label']}: stockist expected {item['expected_stockist']}, "
+            f"after={item['stockist_after_ai'] or '—'} [{status}] | "
+            f"lead expected {item.get('expected_lead')}, "
+            f"after={item.get('lead_after') or '—'} [{lead_status}]"
         )
     print()
     print("QWEN")
@@ -486,7 +530,10 @@ def print_summary(report: dict) -> None:
     print(f"Skipped (other): {llm['skipped_other']}")
     print(f"Scraper failures: {report['scraper_failures']}")
     print()
-    print("Stockist YES is the lead metric. More BOUTIQUE / HIGH women_fashion is not automatically better.")
+    print(
+        "potential_stockist YES is proven-stockist evidence. "
+        "stockist_lead YES is a contactable prospect for manual review."
+    )
 
 
 def run_llm_benchmark(query: str, limit: int, *, enable_llm: bool) -> dict:

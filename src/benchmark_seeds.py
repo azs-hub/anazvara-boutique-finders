@@ -37,6 +37,7 @@ from content_extraction import (
 )
 from enrichment import EnrichedEvidence, enrich_candidate, is_same_site
 from local_llm import STOCKIST_REJECT_REASONS, LocalLLMClient, maybe_classify_with_local_llm
+from stockist_lead import attach_stockist_lead, lead_of
 from search_provider import SearchResult
 from searxng_provider import SearXNGSearchProvider
 from url_normalization import extract_domain, normalize_url
@@ -133,6 +134,7 @@ class SeedSpec:
     facebook: str | None = None
     aliases: tuple[str, ...] = ()
     reference_expected_stockist: str | None = None
+    reference_expected_lead: str | None = None
 
 
 GOA_STOCKIST_SEEDS: tuple[SeedSpec, ...] = (
@@ -140,6 +142,7 @@ GOA_STOCKIST_SEEDS: tuple[SeedSpec, ...] = (
         "Yellow House Parra",
         aliases=("Yellow House",),
         reference_expected_stockist="YES",
+        reference_expected_lead="YES",
     ),
     SeedSpec(
         "Syne Goa",
@@ -156,12 +159,14 @@ GOA_STOCKIST_SEEDS: tuple[SeedSpec, ...] = (
         facebook="https://www.facebook.com/TheGoodLifeGoaTGL/",
         aliases=("The Good Life", "Good Life Goa"),
         reference_expected_stockist="YES",
+        reference_expected_lead="YES",
     ),
     SeedSpec(
         "Rangeela Goa",
         url="https://rangeelagoa.com",
         aliases=("Rangeela",),
         reference_expected_stockist="YES",
+        reference_expected_lead="YES",
     ),
     SeedSpec(
         "Sosa Goa Boutique",
@@ -184,6 +189,7 @@ GOA_STOCKIST_SEEDS: tuple[SeedSpec, ...] = (
         instagram="https://www.instagram.com/paperboatcollective/",
         aliases=("Paper Boat",),
         reference_expected_stockist="YES",
+        reference_expected_lead="YES",
     ),
 )
 
@@ -916,6 +922,7 @@ def attach_seed_provenance(
     evidence["seed_name"] = resolution.seed.seed_name
     evidence["seed_resolution_path"] = resolution.resolution_path
     evidence["reference_expected_stockist"] = resolution.seed.reference_expected_stockist
+    evidence["reference_expected_lead"] = resolution.seed.reference_expected_lead
     evidence["entity_verified_from"] = resolution.entity_verified_from
     evidence["entity_relationship"] = resolution.entity_relationship
     evidence["identity_type"] = resolution.identity_type
@@ -1036,6 +1043,9 @@ def classify_resolved_seed(
             enriched=enriched,
             allow_official_identity=allow_identity,
         )
+        attached = attach_stockist_lead(
+            attached, page_for_llm, signals_for_llm, enriched
+        )
         attempted = attempted or result.attempted
         success = success or (
             result.attempted and result.validated is not None and not result.error
@@ -1071,6 +1081,7 @@ def seed_report_row(
         "seed_name": resolution.seed.seed_name,
         "city": resolution.seed.city,
         "reference_expected_stockist": resolution.seed.reference_expected_stockist,
+        "reference_expected_lead": resolution.seed.reference_expected_lead,
         "discovered": resolution.discovered or resolution.identity_found,
         "organic_hit": resolution.organic_hit,
         "identity_found": resolution.identity_found,
@@ -1079,9 +1090,15 @@ def seed_report_row(
         "identity_sources": list(resolution.identity_sources),
         "official_website_found": bool(resolution.website),
         "official_website_verified": resolution.official_website_verified,
-        "website": resolution.website,
-        "instagram": resolution.instagram_url if resolution.instagram_verified else None,
-        "facebook": resolution.facebook_url if resolution.facebook_verified else None,
+        "website": (owner.website if owner and owner.website else resolution.website),
+        "instagram": (
+            (owner.instagram if owner and owner.instagram else None)
+            or (resolution.instagram_url if resolution.instagram_verified else None)
+        ),
+        "facebook": (
+            (owner.facebook if owner and owner.facebook else None)
+            or (resolution.facebook_url if resolution.facebook_verified else None)
+        ),
         "google_maps_url": resolution.google_maps_url,
         "google_business_verified": resolution.google_business_verified,
         "google_business_evidence": bool(resolution.google_business_verified),
@@ -1096,8 +1113,14 @@ def seed_report_row(
         "business_type_qwen": evidence.get("ai_business_type") if owner else None,
         "women_fashion_rules": owner.women_fashion_relevance.value if owner else UNKNOWN,
         "women_fashion_qwen": evidence.get("ai_women_fashion") if owner else None,
+        "email": owner.email if owner else None,
+        "phone": owner.phone if owner else None,
+        "address": owner.address if owner else None,
         "carries_other_brands": validated.get("carries_other_brands"),
         "potential_stockist": stockist_of(owner, after_ai=True) if owner else "UNKNOWN",
+        "stockist_lead": lead_of(owner) if owner else "UNKNOWN",
+        "manual_review": bool(evidence.get("manual_review")) if owner else False,
+        "stockist_lead_reasons": list(evidence.get("stockist_lead_reasons") or []),
         "confidence": owner.confidence.value if owner else UNKNOWN,
         "ai_confidence": evidence.get("ai_confidence") if owner else None,
         "evidence": list(validated.get("evidence") or []),
@@ -1139,6 +1162,48 @@ def seed_metrics(rows: list[dict]) -> dict:
         "seeds_stockist_no": sum(1 for row in rows if row.get("potential_stockist") == "NO"),
         "seeds_stockist_unknown": sum(
             1 for row in rows if row.get("potential_stockist") == "UNKNOWN"
+        ),
+        "stockist_leads_yes": sum(1 for row in rows if row.get("stockist_lead") == "YES"),
+        "stockist_leads_no": sum(1 for row in rows if row.get("stockist_lead") == "NO"),
+        "stockist_leads_unknown": sum(1 for row in rows if row.get("stockist_lead") == "UNKNOWN"),
+        "stockist_leads_with_website": sum(
+            1
+            for row in rows
+            if row.get("stockist_lead") == "YES" and row.get("website")
+        ),
+        "stockist_leads_with_instagram": sum(
+            1
+            for row in rows
+            if row.get("stockist_lead") == "YES" and row.get("instagram")
+        ),
+        "stockist_leads_with_email": sum(
+            1 for row in rows if row.get("stockist_lead") == "YES" and row.get("email")
+        ),
+        "stockist_leads_with_phone": sum(
+            1 for row in rows if row.get("stockist_lead") == "YES" and row.get("phone")
+        ),
+        "stockist_leads_without_address": sum(
+            1
+            for row in rows
+            if row.get("stockist_lead") == "YES" and not row.get("address")
+        ),
+        "stockist_leads_with_multiple_contacts": sum(
+            1
+            for row in rows
+            if row.get("stockist_lead") == "YES"
+            and sum(
+                1
+                for key in (
+                    "website",
+                    "instagram",
+                    "facebook",
+                    "email",
+                    "phone",
+                    "google_maps_url",
+                )
+                if row.get(key)
+            )
+            >= 2
         ),
         "seeds_validation_rejected": sum(1 for row in rows if row.get("validation") == "rejected"),
         "seeds_without_official_website": sum(

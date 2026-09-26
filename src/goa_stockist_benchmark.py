@@ -393,7 +393,8 @@ def run_seed_benchmark(
             f"  identity={report_row['identity_type'] or '—'} "
             f"verified={report_row['identity_verified']} "
             f"from={report_row['entity_verified_from'] or '—'} "
-            f"stockist={report_row['potential_stockist']}",
+            f"stockist={report_row['potential_stockist']} "
+            f"lead={report_row.get('stockist_lead')}",
             flush=True,
         )
     return {"seeds": seed_rows, "seed_metrics": seed_metrics(seed_rows)}
@@ -402,12 +403,27 @@ def run_seed_benchmark(
 def print_seed_report(block: dict) -> None:
     print("=== SEED DISCOVERY ===")
     metrics = block["seed_metrics"]
+    print("POTENTIAL STOCKIST (stricter Qwen/evidence classification)")
+    print(f"  YES: {metrics['seeds_stockist_yes']}")
+    print(f"  NO: {metrics['seeds_stockist_no']}")
+    print(f"  UNKNOWN: {metrics['seeds_stockist_unknown']}")
+    print("STOCKIST LEAD (contactable commercial prospect for manual review)")
+    print(f"  YES: {metrics['stockist_leads_yes']}")
+    print(f"  NO: {metrics['stockist_leads_no']}")
+    print(f"  UNKNOWN: {metrics['stockist_leads_unknown']}")
+    print(f"  with website: {metrics['stockist_leads_with_website']}")
+    print(f"  with instagram: {metrics['stockist_leads_with_instagram']}")
+    print(f"  with email: {metrics['stockist_leads_with_email']}")
+    print(f"  with phone: {metrics['stockist_leads_with_phone']}")
+    print(f"  without address: {metrics['stockist_leads_without_address']}")
+    print(f"  with multiple contacts: {metrics['stockist_leads_with_multiple_contacts']}")
+    print()
     for key, value in metrics.items():
         print(f"{key}: {value}")
     print()
     print(
         f"{'Seed':<24} {'ID':<4} {'Type':<12} {'Verified':<8} "
-        f"{'Stockist':<9} {'Validation':<10} Primary"
+        f"{'Stockist':<9} {'Lead':<9} {'Validation':<10} Primary"
     )
     for row in block["seeds"]:
         primary = (
@@ -423,6 +439,7 @@ def print_seed_report(block: dict) -> None:
             f"{(row['identity_type'] or '—'):<12} "
             f"{'yes' if row['identity_verified'] else 'no':<8} "
             f"{row['potential_stockist']:<9} "
+            f"{row.get('stockist_lead', 'UNKNOWN'):<9} "
             f"{row['validation']:<10} "
             f"{primary}"
         )
@@ -436,7 +453,10 @@ def print_seed_report(block: dict) -> None:
             f"  extracted={row['business_identity']} type={row['business_type_rules']}/"
             f"{row['business_type_qwen']} women={row['women_fashion_rules']}/"
             f"{row['women_fashion_qwen']} carries={row['carries_other_brands']} "
-            f"store={row['physical_store']} stockist_evidence="
+            f"store={row['physical_store']} lead={row.get('stockist_lead')} "
+            f"review={row.get('manual_review')} "
+            f"email={row.get('email') or '—'} phone={row.get('phone') or '—'} "
+            f"stockist_evidence="
             f"{'yes' if row.get('stockist_evidence_available') else 'no'}"
         )
         print(
@@ -446,6 +466,8 @@ def print_seed_report(block: dict) -> None:
         )
         if row.get("validation_reasons"):
             print(f"  validation_reasons={row['validation_reasons']}")
+        if row.get("stockist_lead_reasons"):
+            print(f"  lead_reasons={row['stockist_lead_reasons']}")
         if row["evidence"]:
             print(f"  evidence={row['evidence']}")
         if row["rejection_reason"]:
