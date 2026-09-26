@@ -62,6 +62,17 @@ DEFAULT_QUERY = "women's fashion boutique Mumbai"
 STOCKIST_REFERENCE_EXAMPLES = (
     {"label": "Villa Mor", "expected": "YES", "needles": ("villa mor", "villamor")},
     {"label": "Rozina", "expected": "NO", "needles": ("rozina",)},
+    {
+        "label": "Yellow House Parra",
+        "expected": "YES",
+        "needles": ("yellow house parra", "yellowhouseparra"),
+    },
+    {"label": "Rangeela Goa", "expected": "YES", "needles": ("rangeela goa", "rangeelagoa")},
+    {
+        "label": "Paper Boat Collective",
+        "expected": "YES",
+        "needles": ("paper boat collective", "paperboatcollective"),
+    },
 )
 
 

@@ -444,6 +444,8 @@ def print_seed_report(block: dict) -> None:
             f"{row.get('entity_verified_from') or '—'} "
             f"relationship={row.get('entity_relationship')}"
         )
+        if row.get("validation_reasons"):
+            print(f"  validation_reasons={row['validation_reasons']}")
         if row["evidence"]:
             print(f"  evidence={row['evidence']}")
         if row["rejection_reason"]:

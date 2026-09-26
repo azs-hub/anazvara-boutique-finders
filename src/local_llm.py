@@ -186,6 +186,31 @@ STOCKIST_YES_RE = re.compile(
     r"we (?:carry|stock|represent)|stockists? of)\b",
     re.IGNORECASE,
 )
+# Official-site only. Requires a count, plurality, or "home to … brands".
+# Bare "independent designer" / "designer boutique" is not enough.
+OFFICIAL_SITE_STOCKIST_RE = re.compile(
+    r"\b("
+    r"home to (?:almost |over |more than )?(?:\d+\+?\s+)?independent "
+    r"(?:designers|brands|artisans|makers)"
+    r"|(?:almost |over |more than )?\d+\+?\s+independent "
+    r"(?:designers|brands|artisans|makers)"
+    r"|multiple independent (?:designers|brands|labels|artisans|makers)"
+    r"|showcases? (?:the )?(?:work|designs) (?:of|from) "
+    r"(?:multiple |several )?(?:indian )?(?:designers|makers|brands)"
+    r"|curated (?:selection|collection) of (?:independent )?(?:brands|labels|designers)"
+    r")\b",
+    re.IGNORECASE,
+)
+STOCKIST_REJECT_REASONS = {
+    "stockist_yes_without_evidence",
+    "stockist_yes_weak_evidence",
+    "stockist_yes_without_page_evidence",
+    "stockist_yes_without_official_site_evidence",
+    "own_label_not_stockist",
+    "designer_store_not_stockist",
+    "discovery_page_not_stockist",
+    "not_a_business",
+}
 WEAK_STOCKIST_EVIDENCE_RE = re.compile(
     r"^(sells women'?s clothes|fashion website|has dresses|located in [\w\s]+|"
     r"women'?s fashion|fashion business|has clothing)$",
@@ -389,6 +414,7 @@ def empty_validated() -> dict[str, Any]:
         "confidence": "LOW",
         "evidence": [],
         "rejected": [],
+        "validation_reasons": [],
     }
 
 
@@ -400,6 +426,7 @@ def validate_llm_result(
     """Deterministic checks. Hallucinated or conflicting AI values become UNKNOWN."""
     validated = empty_validated()
     rejected: list[str] = []
+    reasons: list[str] = []
     if not isinstance(raw, dict):
         validated["rejected"] = ["invalid_json"]
         return validated
@@ -449,13 +476,23 @@ def validate_llm_result(
     if row.physical_store is PhysicalStore.NO:
         if physical == "YES":
             rejected.append("cannot_override_online_only")
+            reasons.append("physical_store_validation_rejected")
         physical = "NO"
+        reasons.append("physical_store_evidence_confirmed")
     elif PHYSICAL_NO_RE.search(text_blob) and physical == "YES":
         rejected.append("online_only_language")
+        reasons.append("physical_store_validation_rejected")
         physical = "NO"
-    elif physical == "YES" and not _has_storefront_evidence(payload, text_blob):
+        reasons.append("physical_store_evidence_confirmed")
+    elif _has_storefront_evidence(payload, text_blob):
+        reasons.append("physical_store_evidence_confirmed")
+    elif physical == "YES":
         rejected.append("physical_yes_without_storefront")
+        reasons.append("physical_store_evidence_missing")
+        reasons.append("physical_store_validation_rejected")
         physical = "UNKNOWN"
+    else:
+        reasons.append("physical_store_evidence_missing")
     validated["physical_store"] = physical
 
     ai_city = str(raw.get("city") or "").strip() or UNKNOWN
@@ -501,7 +538,7 @@ def validate_llm_result(
     evidence_items = raw.get("evidence")
     if isinstance(evidence_items, list):
         validated["evidence"] = [str(item)[:200] for item in evidence_items[:12]]
-    stockist, stockist_rejected = _validate_potential_stockist(
+    stockist, stockist_rejected, stockist_reasons = _validate_potential_stockist(
         raw,
         payload,
         text_blob,
@@ -515,8 +552,10 @@ def validate_llm_result(
     )
     validated["potential_stockist"] = stockist
     rejected.extend(stockist_rejected)
+    reasons.extend(stockist_reasons)
     validated["confidence"] = _enum_value(raw.get("confidence"), {"HIGH", "MEDIUM", "LOW"}, "LOW")
     validated["rejected"] = rejected
+    validated["validation_reasons"] = list(dict.fromkeys(reasons))
     return validated
 
 
@@ -845,6 +884,19 @@ def schema_errors(raw: Any) -> list[str]:
     return errors
 
 
+def _is_official_business_site(payload: dict[str, Any], source_type: str, signals: list[str]) -> bool:
+    """True when the evaluated page is the business website, not social/discovery."""
+    if source_type != ResultType.WEBSITE.value:
+        return False
+    if any(item in signals for item in ("roundup_page", "publisher_not_boutique")):
+        return False
+    return bool(payload.get("website"))
+
+
+def _official_site_has_stockist_evidence(text_blob: str) -> bool:
+    return bool(STOCKIST_YES_RE.search(text_blob) or OFFICIAL_SITE_STOCKIST_RE.search(text_blob))
+
+
 def _validate_potential_stockist(
     raw: dict[str, Any],
     payload: dict[str, Any],
@@ -857,9 +909,10 @@ def _validate_potential_stockist(
     evidence_items: list[str],
     source_type: str,
     signals: list[str],
-) -> tuple[str, list[str]]:
-    """Stockist YES needs supporting evidence. Fashion relevance is not enough."""
+) -> tuple[str, list[str], list[str]]:
+    """Stockist YES needs official-site evidence. Physical-store checks stay separate."""
     rejected: list[str] = []
+    reasons: list[str] = []
     stockist = _enum_value(raw.get("potential_stockist"), STOCKIST_VALUES, "UNKNOWN")
     discovery = source_type in {"DIRECTORY", "ARTICLE"} or any(
         item in signals for item in ("roundup_page", "publisher_not_boutique")
@@ -869,33 +922,44 @@ def _validate_potential_stockist(
         or positioning == "OWN_LABEL"
         or bool(OWN_LABEL_RE.search(text_blob))
     )
+    official_site = _is_official_business_site(payload, source_type, signals)
+    official_stockist = official_site and _official_site_has_stockist_evidence(text_blob)
     if discovery:
         if stockist == "YES":
             rejected.append("discovery_page_not_stockist")
-        return "NO", rejected
+        return "NO", rejected, reasons
     if is_business is False:
         if stockist == "YES":
             rejected.append("not_a_business")
-        return "NO", rejected
+        return "NO", rejected, reasons
     if own_label and carries_other != "YES":
         if stockist == "YES":
             rejected.append("own_label_not_stockist")
-        return "NO", rejected
+        return "NO", rejected, reasons
     if stockist != "YES":
-        return stockist, rejected
+        return stockist, rejected, reasons
     if not evidence_items:
         rejected.append("stockist_yes_without_evidence")
-        return "UNKNOWN", rejected
+        return "UNKNOWN", rejected, reasons
     if all(WEAK_STOCKIST_EVIDENCE_RE.match(item.strip()) for item in evidence_items):
         rejected.append("stockist_yes_weak_evidence")
-        return "UNKNOWN", rejected
-    if not STOCKIST_YES_RE.search(text_blob):
+        return "UNKNOWN", rejected, reasons
+    if official_stockist:
+        reasons.append("stockist_yes_with_official_site_evidence")
+        return "YES", rejected, reasons
+    if official_site:
         if own_label or OWN_LABEL_RE.search(text_blob) or _looks_like_own_designer_store(text_blob):
             rejected.append("designer_store_not_stockist")
-            return "NO", rejected
+            return "NO", rejected, reasons
+        rejected.append("stockist_yes_without_official_site_evidence")
         rejected.append("stockist_yes_without_page_evidence")
-        return "UNKNOWN", rejected
-    return "YES", rejected
+        return "UNKNOWN", rejected, reasons
+    rejected.append("stockist_yes_without_official_site_evidence")
+    if own_label or OWN_LABEL_RE.search(text_blob) or _looks_like_own_designer_store(text_blob):
+        rejected.append("designer_store_not_stockist")
+        return "NO", rejected, reasons
+    rejected.append("stockist_yes_without_page_evidence")
+    return "UNKNOWN", rejected, reasons
 
 
 def _looks_like_own_designer_store(text_blob: str) -> bool:

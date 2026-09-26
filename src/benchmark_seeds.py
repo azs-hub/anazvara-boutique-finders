@@ -36,7 +36,7 @@ from content_extraction import (
     extract_page_evidence,
 )
 from enrichment import EnrichedEvidence, enrich_candidate, is_same_site
-from local_llm import LocalLLMClient, maybe_classify_with_local_llm
+from local_llm import STOCKIST_REJECT_REASONS, LocalLLMClient, maybe_classify_with_local_llm
 from search_provider import SearchResult
 from searxng_provider import SearXNGSearchProvider
 from url_normalization import extract_domain, normalize_url
@@ -1102,7 +1102,12 @@ def seed_report_row(
         "ai_confidence": evidence.get("ai_confidence") if owner else None,
         "evidence": list(validated.get("evidence") or []),
         "stockist_evidence_available": stats.get("stockist_evidence_available", False),
-        "validation": "rejected" if rejected else ("passed" if stats.get("qwen_success") else "n/a"),
+        "validation_reasons": list(validated.get("validation_reasons") or []),
+        "validation": (
+            "rejected"
+            if any(item in STOCKIST_REJECT_REASONS for item in rejected)
+            else ("passed" if stats.get("qwen_success") else "n/a")
+        ),
         "rejection_reason": rejected,
         "qwen_reached": stats.get("qwen_attempted", False),
         "enriched_pages": stats.get("enriched_pages", 0),

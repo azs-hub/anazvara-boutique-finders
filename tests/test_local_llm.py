@@ -594,10 +594,92 @@ class SchemaAndStockistTests(unittest.TestCase):
         self.assertEqual(validated["is_business"], False)
         self.assertEqual(validated["potential_stockist"], "NO")
 
+    def test_official_site_multi_designer_home_is_stockist_yes(self) -> None:
+        raw = _ai_payload(
+            business_type="MULTI_BRAND",
+            carries_other_brands="YES",
+            physical_store="YES",
+            potential_stockist="YES",
+            evidence=["Home to almost 50 independent designers, brands, artisans and makers."],
+        )
+        payload = build_llm_payload(
+            candidate=_candidate(),
+            row=_row(),
+            page_evidence=_page(
+                text="We're home to almost 50 independent designers, brands, artisans and makers."
+            ),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row())
+        self.assertEqual(validated["potential_stockist"], "YES")
+        self.assertIn("stockist_yes_with_official_site_evidence", validated["validation_reasons"])
+        self.assertEqual(validated["physical_store"], "UNKNOWN")
+        self.assertIn("physical_yes_without_storefront", validated["rejected"])
+        self.assertIn("physical_store_validation_rejected", validated["validation_reasons"])
+
+    def test_bare_independent_designer_is_not_stockist_yes(self) -> None:
+        raw = _ai_payload(
+            potential_stockist="YES",
+            evidence=["Independent designer boutique."],
+        )
+        payload = build_llm_payload(
+            candidate=_candidate(),
+            row=_row(),
+            page_evidence=_page(text="Independent designer boutique. Our designer collection."),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row())
+        self.assertNotEqual(validated["potential_stockist"], "YES")
+        self.assertIn("stockist_yes_without_official_site_evidence", validated["rejected"])
+
+    def test_concept_store_yes_survives_missing_storefront_regex(self) -> None:
+        raw = _ai_payload(
+            business_type="CONCEPT_STORE",
+            carries_other_brands="YES",
+            physical_store="YES",
+            potential_stockist="YES",
+            evidence=["Concept store with a curated selection of clothing and home objects."],
+        )
+        payload = build_llm_payload(
+            candidate=_candidate(url="https://rangeela.example/", normalized_url="https://rangeela.example"),
+            row=_row(website="https://rangeela.example"),
+            page_evidence=_page(
+                text="A concept store. Luxury clothing, home decor, gifts and furniture collections."
+            ),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row(website="https://rangeela.example"))
+        self.assertEqual(validated["potential_stockist"], "YES")
+        self.assertIn("stockist_yes_with_official_site_evidence", validated["validation_reasons"])
+        self.assertEqual(validated["physical_store"], "UNKNOWN")
+        self.assertIn("physical_store_evidence_missing", validated["validation_reasons"])
+        self.assertNotIn("stockist_yes_without_page_evidence", validated["rejected"])
+
+    def test_social_only_yes_needs_official_site_evidence(self) -> None:
+        raw = _ai_payload(potential_stockist="YES", evidence=["Fashion boutique in Goa."])
+        payload = build_llm_payload(
+            candidate=_candidate(
+                result_type=ResultType.SOCIAL,
+                url="https://instagram.com/example",
+                normalized_url="https://instagram.com/example",
+            ),
+            row=_row(source_type="SOCIAL", website=None),
+            page_evidence=_page(title="Example Goa", text="Boutique in Goa"),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(
+            raw, payload, _row(source_type="SOCIAL", website=None)
+        )
+        self.assertEqual(validated["potential_stockist"], "UNKNOWN")
+        self.assertIn("stockist_yes_without_official_site_evidence", validated["rejected"])
+
     def test_production_logic_does_not_hardcode_reference_names(self) -> None:
         source = (SRC_DIR / "local_llm.py").read_text(encoding="utf-8").lower()
         self.assertNotIn("villa mor", source)
         self.assertNotIn("rozina", source)
+        self.assertNotIn("yellow house", source)
+        self.assertNotIn("rangeela", source)
+        self.assertNotIn("paper boat", source)
 
 
 if __name__ == "__main__":
