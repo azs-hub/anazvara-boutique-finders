@@ -122,6 +122,23 @@ class AmbiguityTests(unittest.TestCase):
         reason = ambiguity_reason(row, _candidate(result_type=ResultType.DIRECTORY), _page())
         self.assertEqual(reason, "source_not_website")
 
+    def test_social_is_skipped_unless_official_identity_allowed(self) -> None:
+        row = _row(source_type="SOCIAL", website=None)
+        social = _candidate(
+            result_type=ResultType.SOCIAL,
+            url="https://instagram.com/rangeengoa",
+            normalized_url="https://instagram.com/rangeengoa",
+        )
+        self.assertEqual(ambiguity_reason(row, social, _page(title="Rangeen Goa")), "source_not_website")
+        self.assertIsNone(
+            ambiguity_reason(
+                row,
+                social,
+                _page(title="Rangeen Goa", text="Goa boutique"),
+                allow_official_identity=True,
+            )
+        )
+
     def test_confident_identity_is_still_sent_for_stockist(self) -> None:
         row = _row(
             business_type=BusinessType.BOUTIQUE,

@@ -70,6 +70,28 @@ DIRECTORY_DOMAINS = {
     "flipkart.com",
     "maps.google.com",
     "goo.gl",
+    "airbnb.com",
+    "booking.com",
+    "shopee.com",
+    "shopee.in",
+    "superstock.com",
+    "shutterstock.com",
+    "gettyimages.com",
+    "unsplash.com",
+    "pexels.com",
+    "alamy.com",
+    "etsy.com",
+    "ebay.com",
+    "ebay.in",
+    "myntra.com",
+    "ajio.com",
+    "meesho.com",
+    "bizgoa.com",
+    "bizgoa.in",
+    "makemytrip.com",
+    "goibibo.com",
+    "yatra.com",
+    "wheree.com",
 }
 
 ARTICLE_DOMAINS = {
@@ -104,6 +126,26 @@ def _host_matches(domain: str | None, catalog: set[str]) -> bool:
     return any(domain.endswith(f".{known}") for known in catalog)
 
 
+def is_google_maps_url(url: str | None) -> bool:
+    """True for Google Maps / business-profile map links, not google.com search."""
+    if not url:
+        return False
+    normalized = normalize_url(url) or url
+    host = extract_host(normalized) or ""
+    domain = extract_domain(normalized) or ""
+    parsed = urlparse(normalized)
+    path = (parsed.path or "").lower()
+    if domain in {"maps.google.com", "maps.google.co.in"}:
+        return True
+    if domain == "goo.gl" and path.startswith("/maps"):
+        return True
+    if domain in {"google.com", "google.co.in"} and path.startswith("/maps"):
+        return True
+    if "google." in host and path.startswith("/maps"):
+        return True
+    return False
+
+
 def classify_url(url: str) -> ResultType:
     """Classify ``url`` using host and path heuristics only."""
     normalized = normalize_url(url)
@@ -121,9 +163,9 @@ def classify_url(url: str) -> ResultType:
 
     parsed = urlparse(normalized or url)
     path = (parsed.path or "").lower()
-    if domain == "google.com" and (
-        path.startswith("/maps") or path.startswith("/search")
-    ):
+    if is_google_maps_url(normalized or url):
+        return ResultType.DIRECTORY
+    if domain == "google.com" and path.startswith("/search"):
         return ResultType.DIRECTORY
 
     if _host_matches(domain, ARTICLE_DOMAINS):

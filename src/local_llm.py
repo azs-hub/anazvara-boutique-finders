@@ -28,7 +28,7 @@ from business_candidates import (
     Relevance,
 )
 from candidates import Candidate
-from classification import ResultType
+from classification import ResultType, is_google_maps_url
 from content_extraction import CITY_NAMES, BusinessSignals, PageEvidence
 from enrichment import EnrichedEvidence, classify_internal_page
 from structured_evidence import (
@@ -254,17 +254,50 @@ def is_rules_confident(row: BusinessCandidate) -> bool:
     )
 
 
+def _has_identity_page_evidence(page_evidence: PageEvidence) -> bool:
+    return bool(
+        page_evidence.text
+        or page_evidence.title
+        or page_evidence.meta_description
+        or page_evidence.structured_facts
+    )
+
+
 def ambiguity_reason(
     row: BusinessCandidate,
     candidate: Candidate,
     page_evidence: PageEvidence,
+    *,
+    allow_official_identity: bool = False,
 ) -> str | None:
-    """Return a skip reason, or None if this record should be sent to Qwen."""
+    """Return a skip reason, or None if this record should be sent to Qwen.
+
+    Production stays website-only. Seed identity resolution may pass
+    ``allow_official_identity`` so a verified Instagram/Facebook/Maps
+    profile can be evaluated. That flag does not change the prompt or
+    force ``potential_stockist``.
+    """
+    signals = list((row.evidence or {}).get("signals") or [])
+    if allow_official_identity:
+        source = row.source_type or candidate.result_type.value
+        maps = is_google_maps_url(candidate.normalized_url or candidate.url)
+        official = (
+            candidate.result_type is ResultType.WEBSITE
+            or candidate.result_type is ResultType.SOCIAL
+            or source in {"WEBSITE", "SOCIAL"}
+            or maps
+        )
+        if not official:
+            return "source_not_official_identity"
+        if source in {"ARTICLE"} or "publisher_not_boutique" in signals:
+            return "source_not_official_identity"
+        if not _has_identity_page_evidence(page_evidence):
+            return "insufficient_page_evidence"
+        return None
     if candidate.result_type is not ResultType.WEBSITE:
         return "source_not_website"
     if row.source_type in {"DIRECTORY", "ARTICLE", "SOCIAL", "VIDEO"}:
         return "source_not_website"
-    signals = list((row.evidence or {}).get("signals") or [])
     if "publisher_not_boutique" in signals and not (page_evidence.text or "").strip():
         return "roundup_without_page_text"
     if not (page_evidence.text or page_evidence.title or page_evidence.structured_facts):
@@ -582,6 +615,7 @@ class LocalLLMClient:
         page_evidence: PageEvidence,
         signals: BusinessSignals,
         enriched: EnrichedEvidence | None = None,
+        allow_official_identity: bool = False,
     ) -> LLMCallResult:
         if not self.enabled:
             return LLMCallResult(
@@ -593,7 +627,12 @@ class LocalLLMClient:
                 validated=None,
                 elapsed_seconds=0.0,
             )
-        skip = ambiguity_reason(row, candidate, page_evidence)
+        skip = ambiguity_reason(
+            row,
+            candidate,
+            page_evidence,
+            allow_official_identity=allow_official_identity,
+        )
         if skip:
             return LLMCallResult(
                 enabled=True,
@@ -738,6 +777,7 @@ def maybe_classify_with_local_llm(
     page_evidence: PageEvidence,
     signals: BusinessSignals,
     enriched: EnrichedEvidence | None = None,
+    allow_official_identity: bool = False,
 ) -> tuple[BusinessCandidate, LLMCallResult]:
     """Attach Qwen output to one rule-identified row. Safe if Ollama is down."""
     result = client.classify(
@@ -746,6 +786,7 @@ def maybe_classify_with_local_llm(
         page_evidence=page_evidence,
         signals=signals,
         enriched=enriched,
+        allow_official_identity=allow_official_identity,
     )
     return attach_llm_result(row, result), result
 

@@ -81,6 +81,32 @@ class ClassificationTests(unittest.TestCase):
             ResultType.VIDEO,
         )
 
+    def test_marketplace_and_maps_are_not_official_websites(self) -> None:
+        self.assertEqual(
+            classify_url("https://www.airbnb.com/rooms/123"),
+            ResultType.DIRECTORY,
+        )
+        self.assertEqual(
+            classify_url("https://shopee.in/sasha-shop"),
+            ResultType.DIRECTORY,
+        )
+        self.assertEqual(
+            classify_url("https://www.superstock.com/stock-photos"),
+            ResultType.DIRECTORY,
+        )
+        self.assertEqual(
+            classify_url("https://www.google.com/maps/place/Villa+Mor"),
+            ResultType.DIRECTORY,
+        )
+        self.assertEqual(
+            classify_url("https://bizgoa.in/listings/the-good-life-goa"),
+            ResultType.DIRECTORY,
+        )
+        self.assertEqual(
+            classify_url("https://www.makemytrip.com/hotels/sosa_villa"),
+            ResultType.DIRECTORY,
+        )
+
     def test_directory_hosts(self) -> None:
         self.assertEqual(
             classify_url("https://www.justdial.com/Mumbai/Boutiques"),

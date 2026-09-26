@@ -22,6 +22,13 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from benchmark import OUTPUT_DIR, collect_search_results
+from benchmark_seeds import (
+    GOA_STOCKIST_SEEDS,
+    classify_resolved_seed,
+    resolve_seed,
+    seed_metrics,
+    seed_report_row,
+)
 from business_candidates import (
     UNKNOWN,
     BusinessCandidate,
@@ -38,12 +45,14 @@ from candidates import (
     candidates_from_search_results,
 )
 from classification import ResultType
+from enrichment_benchmark import CountingFetcher
 from llm_benchmark import (
     evaluate_candidates,
     match_stockist_references,
     print_summary,
     stockist_of,
 )
+from local_llm import LocalLLMClient
 from search_provider import SearchResult
 from searxng_provider import SearXNGSearchProvider
 
@@ -87,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=8, help="Max candidates per query")
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--no-json", action="store_true")
+    parser.add_argument(
+        "--full-discovery",
+        action="store_true",
+        help="Also run the full organic fetch+Qwen discovery pass",
+    )
+    parser.add_argument("--skip-seeds", action="store_true")
     return parser
 
 
@@ -343,6 +358,101 @@ def row_from_dict(item: dict) -> BusinessCandidate:
     )
 
 
+def collect_organic_candidates(provider: SearXNGSearchProvider, limit: int) -> list[Candidate]:
+    merged: list[Candidate] = []
+    for query in GOA_QUERIES:
+        raw, _error = collect_search_results(provider, query, limit)
+        batch = candidates_from_search_results(raw, query)[:limit]
+        merged = merge_candidates(merged, batch)
+        print(f"organic search {query!r}: {len(batch)} candidates", flush=True)
+    return merged
+
+
+def run_seed_benchmark(
+    *,
+    enable_llm: bool,
+    organic_candidates: list[Candidate],
+) -> dict:
+    fetcher = CountingFetcher(retries=0, delay_seconds=1.0)
+    client = LocalLLMClient(enabled=enable_llm)
+    provider = SearXNGSearchProvider.from_env()
+    if provider is None:
+        raise RuntimeError("SEARXNG_URL is not set. Copy .env.example to .env.")
+    seed_rows: list[dict] = []
+    for seed in GOA_STOCKIST_SEEDS:
+        print(f"seed resolve {seed.seed_name}", flush=True)
+        resolution = resolve_seed(
+            seed, provider, fetcher, organic_candidates=organic_candidates
+        )
+        rows, stats = classify_resolved_seed(
+            fetcher=fetcher, client=client, resolution=resolution
+        )
+        report_row = seed_report_row(resolution, rows, stats)
+        seed_rows.append(report_row)
+        print(
+            f"  identity={report_row['identity_type'] or '—'} "
+            f"verified={report_row['identity_verified']} "
+            f"from={report_row['entity_verified_from'] or '—'} "
+            f"stockist={report_row['potential_stockist']}",
+            flush=True,
+        )
+    return {"seeds": seed_rows, "seed_metrics": seed_metrics(seed_rows)}
+
+
+def print_seed_report(block: dict) -> None:
+    print("=== SEED DISCOVERY ===")
+    metrics = block["seed_metrics"]
+    for key, value in metrics.items():
+        print(f"{key}: {value}")
+    print()
+    print(
+        f"{'Seed':<24} {'ID':<4} {'Type':<12} {'Verified':<8} "
+        f"{'Stockist':<9} {'Validation':<10} Primary"
+    )
+    for row in block["seeds"]:
+        primary = (
+            row.get("website")
+            or row.get("instagram")
+            or row.get("facebook")
+            or row.get("google_maps_url")
+            or "—"
+        )
+        print(
+            f"{row['seed_name']:<24} "
+            f"{'yes' if row['identity_found'] else 'no':<4} "
+            f"{(row['identity_type'] or '—'):<12} "
+            f"{'yes' if row['identity_verified'] else 'no':<8} "
+            f"{row['potential_stockist']:<9} "
+            f"{row['validation']:<10} "
+            f"{primary}"
+        )
+        print(
+            f"  website={row.get('website') or '—'} "
+            f"instagram={row.get('instagram') or '—'} "
+            f"facebook={row.get('facebook') or '—'} "
+            f"maps={'yes' if row.get('google_business_verified') else 'no'}"
+        )
+        print(
+            f"  extracted={row['business_identity']} type={row['business_type_rules']}/"
+            f"{row['business_type_qwen']} women={row['women_fashion_rules']}/"
+            f"{row['women_fashion_qwen']} carries={row['carries_other_brands']} "
+            f"store={row['physical_store']} stockist_evidence="
+            f"{'yes' if row.get('stockist_evidence_available') else 'no'}"
+        )
+        print(
+            f"  origin={row['entity_origin']} verified_from="
+            f"{row.get('entity_verified_from') or '—'} "
+            f"relationship={row.get('entity_relationship')}"
+        )
+        if row["evidence"]:
+            print(f"  evidence={row['evidence']}")
+        if row["rejection_reason"]:
+            print(f"  rejected={row['rejection_reason']}")
+        if row["stockist_pages"]:
+            print(f"  extra pages={row['stockist_pages']}")
+    print()
+
+
 def write_json(report: dict) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -357,16 +467,42 @@ def main(argv: list[str] | None = None) -> int:
         print("--limit must be at least 1", file=sys.stderr)
         return 1
     try:
-        report = run_goa_benchmark(limit=args.limit, enable_llm=not args.no_llm)
+        provider = SearXNGSearchProvider.from_env()
+        if provider is None:
+            raise RuntimeError("SEARXNG_URL is not set. Copy .env.example to .env.")
+        print("=== NORMAL DISCOVERY (search only) ===", flush=True)
+        organic = collect_organic_candidates(provider, args.limit)
+        print(f"Organic candidates after merge: {len(organic)}", flush=True)
+        report: dict = {
+            "query": "Goa seed + organic comparison",
+            "limit": args.limit,
+            "organic_discovery": {
+                "candidates": len(organic),
+                "urls": [item.normalized_url for item in organic],
+            },
+        }
+        if not args.skip_seeds:
+            report.update(run_seed_benchmark(enable_llm=not args.no_llm, organic_candidates=organic))
+        if args.full_discovery:
+            report["full_discovery"] = run_goa_benchmark(
+                limit=args.limit, enable_llm=not args.no_llm
+            )
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print()
-    print_summary(report)
-    print_inspection(report)
-    refs = report["stockist"]["reference_examples"]
-    villa = next((item for item in refs if item["label"] == "Villa Mor"), None)
-    print("VILLA MOR →", villa)
+    print("NORMAL DISCOVERY")
+    print(f"Candidates found organically: {report['organic_discovery']['candidates']}")
+    if report.get("seed_metrics"):
+        print(
+            f"Seeds also found in organic search: {report['seed_metrics']['seeds_organic_hits']}/"
+            f"{report['seed_metrics']['seeds_total']}"
+        )
+        print()
+        print_seed_report(report)
+    if report.get("full_discovery"):
+        print_summary(report["full_discovery"])
+        print_inspection(report["full_discovery"])
     if not args.no_json:
         path = write_json(report)
         print()
