@@ -294,6 +294,49 @@ class BusinessCandidateTests(unittest.TestCase):
         self.assertEqual(rows[0].business_type, BusinessType.UNKNOWN)
         self.assertEqual(rows[0].source_type, "SOCIAL")
 
+    def test_instagram_reel_is_not_a_business(self) -> None:
+        rows = identify_business_candidates(
+            _candidate(
+                result_type=ResultType.SOCIAL,
+                title="Found Goa's most budget boutique",
+                url="https://instagram.com/reel/DROk1BME4m-",
+                normalized_url="https://instagram.com/reel/DROk1BME4m-",
+                domain="instagram.com",
+            ),
+            _evidence(
+                title="Found Goa's most budget boutique",
+                domain="instagram.com",
+                source_url="https://instagram.com/reel/DROk1BME4m-",
+                final_url="https://instagram.com/reel/DROk1BME4m-",
+            ),
+            BusinessSignals(),
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].business_name, UNKNOWN)
+        self.assertIn("social_post", rows[0].evidence["signals"])
+
+    def test_listicle_does_not_use_publisher_as_the_business(self) -> None:
+        rows = identify_business_candidates(
+            _candidate(
+                title="5 Cool Boutiques To Visit for Shopping in Goa",
+                url="https://blog.example/5-cool-boutiques-visit-for-shopping-in-goa",
+                normalized_url="https://blog.example/5-cool-boutiques-visit-for-shopping-in-goa",
+                domain="blog.example",
+            ),
+            _evidence(
+                title="5 Cool Boutiques To Visit for Shopping in Goa",
+                source_url="https://blog.example/5-cool-boutiques-visit-for-shopping-in-goa",
+                final_url="https://blog.example/5-cool-boutiques-visit-for-shopping-in-goa",
+                domain="blog.example",
+                text="A shopping guide to boutiques in Goa.",
+                links=[_link("https://shop.example/", "Example Boutique")],
+            ),
+            BusinessSignals(),
+        )
+        names = {row.business_name for row in rows}
+        self.assertIn("Example Boutique", names)
+        self.assertNotIn("blog.example", " ".join(names).lower())
+
     def test_video_explicit_business_name(self) -> None:
         rows = identify_business_candidates(
             _candidate(

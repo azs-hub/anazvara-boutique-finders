@@ -6,6 +6,7 @@ boutique links when page expansion is implemented.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from urllib.parse import urlparse
 
@@ -110,6 +111,7 @@ ARTICLE_DOMAINS = {
     "lifestyleasia.com",
     "architecturaldigest.in",
     "architecturaldigest.com",
+    "gomantaktimes.com",
     "cnn.com",
     "bbc.com",
     "bbc.co.uk",
@@ -169,6 +171,14 @@ def classify_url(url: str) -> ResultType:
         return ResultType.DIRECTORY
 
     if _host_matches(domain, ARTICLE_DOMAINS):
+        return ResultType.ARTICLE
+    if re.search(
+        r"/(?:blogs?|articles?|stories|story|travel-guides?)/|"
+        r"shopping-in-|designers?-in-|boutiques?-to-visit|"
+        r"places-to-(?:shop|visit)|/my-goa/",
+        path,
+        re.IGNORECASE,
+    ):
         return ResultType.ARTICLE
 
     return ResultType.WEBSITE

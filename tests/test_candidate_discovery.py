@@ -133,6 +133,20 @@ class ClassificationTests(unittest.TestCase):
             ResultType.WEBSITE,
         )
 
+    def test_shopping_guide_path_is_article(self) -> None:
+        self.assertEqual(
+            classify_url("https://blog.example/5-cool-boutiques-visit-for-shopping-in-goa"),
+            ResultType.ARTICLE,
+        )
+        self.assertEqual(
+            classify_url("https://travel.example/designers-in-goa-boutiques"),
+            ResultType.ARTICLE,
+        )
+        self.assertEqual(
+            classify_url("https://news.example/my-goa/shopping-in-goa/modish"),
+            ResultType.ARTICLE,
+        )
+
     def test_unknown_without_host(self) -> None:
         self.assertEqual(classify_url(""), ResultType.UNKNOWN)
         self.assertEqual(classify_url("mailto:hello@example.com"), ResultType.UNKNOWN)

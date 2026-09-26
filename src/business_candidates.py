@@ -47,6 +47,7 @@ from structured_evidence import (
     looks_generic_name,
     pick_best_fact,
 )
+from entity_quality import is_social_post_url, looks_like_media_or_listicle
 from url_normalization import extract_domain, is_same_site, normalize_url
 
 UNKNOWN = "UNKNOWN"
@@ -306,7 +307,14 @@ def identify_business_from_page(
         home = _homepage_from_enriched(enriched)
         if home and home.title:
             homepage_title = home.title.strip()
-    if _is_roundup_title(homepage_title) or _is_roundup_title(candidate.title):
+    media_page = looks_like_media_or_listicle(
+        url=candidate.normalized_url or candidate.url,
+        title=homepage_title or candidate.title,
+        text=page_evidence.text or "",
+        source_type=candidate.result_type.value,
+        signals=[],
+    )
+    if media_page or _is_roundup_title(homepage_title) or _is_roundup_title(candidate.title):
         listed = _businesses_from_external_links(
             candidate,
             page_evidence,
@@ -321,7 +329,7 @@ def identify_business_from_page(
                 page_evidence,
                 business_signals,
                 name=UNKNOWN,
-                extra_signals=["roundup_page", "publisher_not_boutique"],
+                extra_signals=["roundup_page", "publisher_not_boutique", "media_page"],
                 enriched=enriched,
             )
         ]
@@ -390,6 +398,39 @@ def identify_business_from_social(
     """Keep the profile URL. Do not infer boutique from the username."""
     url = candidate.normalized_url or candidate.url
     title = (page_evidence.title or candidate.title or "").strip()
+    if is_social_post_url(url):
+        return [
+            BusinessCandidate(
+                business_name=UNKNOWN,
+                website=None,
+                instagram=url if "instagram.com" in url.lower() else None,
+                facebook=(
+                    url
+                    if "facebook.com" in url.lower() or "fb.com" in url.lower()
+                    else None
+                ),
+                whatsapp=None,
+                phone=None,
+                email=None,
+                address=None,
+                city=UNKNOWN,
+                source_url=url,
+                source_type="SOCIAL",
+                business_type=BusinessType.UNKNOWN,
+                fashion_relevance=Relevance.UNKNOWN,
+                women_fashion_relevance=Relevance.UNKNOWN,
+                physical_store=PhysicalStore.UNKNOWN,
+                evidence={
+                    "source_url": url,
+                    "source_type": "SOCIAL",
+                    "name_source": "none",
+                    "signals": ["social_post"],
+                    "entity_relationship": "SOCIAL_POST",
+                    "entity_is_business": "NO",
+                },
+                confidence=Confidence.LOW,
+            )
+        ]
     name, name_source = _social_profile_name(title, url)
     instagram = url if "instagram.com" in url.lower() else _pick_instagram(business_signals)
     facebook = (

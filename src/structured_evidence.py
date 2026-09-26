@@ -126,7 +126,12 @@ CHROME_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 ROUNDUP_TITLE_RE = re.compile(
-    r"\b(best|top|coolest)\b.{0,40}\b(boutique|boutiques|stores?)\b",
+    r"\b(?:\d+\s+)?(?:best|top|coolest|cool|stylish)\b.{0,50}\b"
+    r"(?:boutique|boutiques|stores?|shops?)\b|"
+    r"\bboutiques?\s+to\s+visit\b|"
+    r"\bshopping\s+(?:in|guide)\b|"
+    r"\bdesigners?\s+in\b.{0,40}\bboutiques?\b|"
+    r"\bwhere\s+to\s+shop\b",
     re.IGNORECASE,
 )
 ARTICLE_NAME_RE = re.compile(

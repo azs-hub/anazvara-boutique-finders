@@ -14,6 +14,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -52,9 +53,17 @@ from enrichment_benchmark import (
 from local_llm import (
     LocalLLMClient,
     apply_unknown_fills,
+    build_llm_payload,
     is_rules_confident,
     maybe_classify_with_local_llm,
 )
+from organic_lead_report import (
+    build_organic_report,
+    load_seed_comparison,
+    print_organic_report,
+    print_seed_comparison,
+)
+from qwen_inspection import build_qwen_inspection, print_qwen_inspection
 from stockist_lead import attach_stockist_lead, lead_of
 from page_inspection import inspect_candidate
 from searxng_provider import SearXNGSearchProvider
@@ -347,6 +356,29 @@ def evaluate_candidates(
             attached = attach_stockist_lead(
                 attached, page_for_llm, signals_for_llm, enriched
             )
+            pages_sent = []
+            if enriched is not None and enriched.pages:
+                pages_sent = [
+                    page.final_url or page.source_url for page in enriched.pages
+                ]
+            elif page_for_llm is not None:
+                pages_sent = [page_for_llm.final_url or page_for_llm.source_url]
+            inspect_evidence = dict(attached.evidence or {})
+            inspect_evidence["qwen_inspection"] = {
+                "attempted": result.attempted,
+                "skipped_reason": result.skipped_reason,
+                "error": result.error,
+                "raw": result.raw,
+                "pages": pages_sent,
+                "payload": build_llm_payload(
+                    candidate=candidate,
+                    row=row,
+                    page_evidence=page_for_llm,
+                    signals=signals_for_llm,
+                    enriched=enriched,
+                ),
+            }
+            attached = replace(attached, evidence=inspect_evidence)
             if result.attempted:
                 qwen_calls += 1
                 qwen_seconds += result.elapsed_seconds
@@ -451,6 +483,13 @@ def evaluate_candidates(
         "business_candidates_rules": [business_to_dict(row) for row in rules_deduped],
         "business_candidates_llm": [business_to_dict(row) for row in llm_deduped],
         "errors": errors,
+        "organic": build_organic_report(
+            raw_search_count=raw_search_count,
+            organic_candidates=len(candidates),
+            rows=llm_deduped,
+            pair_records=pair_records,
+        ),
+        "qwen_inspection": build_qwen_inspection(llm_deduped),
     }
     return report
 
@@ -534,6 +573,13 @@ def print_summary(report: dict) -> None:
         "potential_stockist YES is proven-stockist evidence. "
         "stockist_lead YES is a contactable prospect for manual review."
     )
+    if report.get("organic"):
+        print()
+        print_organic_report(report["organic"])
+    if report.get("qwen_inspection"):
+        print_qwen_inspection(report["qwen_inspection"])
+    if report.get("seed_comparison"):
+        print_seed_comparison(report["seed_comparison"])
 
 
 def run_llm_benchmark(query: str, limit: int, *, enable_llm: bool) -> dict:
@@ -570,6 +616,14 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    if report.get("organic"):
+        from benchmark_seeds import GOA_STOCKIST_SEEDS
+
+        report["seed_comparison"] = load_seed_comparison(
+            report["organic"],
+            OUTPUT_DIR,
+            tuple(seed.seed_name for seed in GOA_STOCKIST_SEEDS),
+        )
     print()
     print_summary(report)
     if not args.no_json:

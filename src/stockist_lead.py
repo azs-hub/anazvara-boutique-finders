@@ -12,6 +12,7 @@ from typing import Any
 from business_candidates import UNKNOWN, BusinessCandidate, BusinessType
 from content_extraction import BusinessSignals, PageEvidence
 from enrichment import EnrichedEvidence
+from entity_quality import assess_entity_quality
 
 YES_NO_UNKNOWN = {"YES", "NO", "UNKNOWN"}
 RETAIL_TYPES = {
@@ -120,6 +121,27 @@ def _fashion_or_retail(row: BusinessCandidate, text: str) -> bool:
     return bool(LEAD_RELEVANCE_RE.search(text))
 
 
+def _entity_from_row(
+    row: BusinessCandidate,
+    page_evidence: PageEvidence | None = None,
+) -> dict[str, Any]:
+    text = _text_blob(page_evidence, extra=row.business_name or "")
+    return assess_entity_quality(
+        url=row.source_url or row.website,
+        title=page_evidence.title if page_evidence else None,
+        text=text,
+        source_type=row.source_type,
+        signals=list((row.evidence or {}).get("signals") or []),
+        name=row.business_name,
+        city=row.city,
+        address=row.address,
+        website=row.website,
+        instagram=row.instagram,
+        facebook=row.facebook,
+        business_type=row.business_type.value,
+    )
+
+
 def assess_stockist_lead(
     row: BusinessCandidate,
     page_evidence: PageEvidence | None = None,
@@ -130,13 +152,30 @@ def assess_stockist_lead(
     del signals, enriched
     text = _text_blob(page_evidence, extra=row.business_name or "")
     paths = contact_paths(row)
+    quality = _entity_from_row(row, page_evidence)
     reasons: list[str] = []
+    if quality.get("excluded_from_lead_eval"):
+        relationship = quality.get("entity_relationship")
+        if relationship in {"ARTICLE", "MEDIA", "DIRECTORY", "SOCIAL_POST"}:
+            lead = "NO"
+        elif quality.get("geographic_relevance") == "NO":
+            lead = "NO"
+        else:
+            lead = "UNKNOWN"
+        return {
+            "stockist_lead": lead,
+            "manual_review": False,
+            "reasons": [quality.get("exclude_reason") or "entity_quality_gate"],
+            "contacts": paths,
+            "entity": quality,
+        }
     if _source_is_discovery(row):
         return {
             "stockist_lead": "NO",
             "manual_review": False,
             "reasons": ["discovery_page_not_lead"],
             "contacts": paths,
+            "entity": quality,
         }
     if row.business_type is BusinessType.MARKETPLACE or LEAD_NO_RE.search(text):
         reasons.append("not_a_retail_prospect")
@@ -145,6 +184,7 @@ def assess_stockist_lead(
             "manual_review": False,
             "reasons": reasons,
             "contacts": paths,
+            "entity": quality,
         }
     if _own_label_only(row, text):
         return {
@@ -152,6 +192,7 @@ def assess_stockist_lead(
             "manual_review": False,
             "reasons": ["own_label_not_lead"],
             "contacts": paths,
+            "entity": quality,
         }
     named = row.business_name not in {None, "", UNKNOWN}
     if not named and not _contactable(paths):
@@ -160,6 +201,7 @@ def assess_stockist_lead(
             "manual_review": False,
             "reasons": ["identity_insufficient"],
             "contacts": paths,
+            "entity": quality,
         }
     relevant = _fashion_or_retail(row, text)
     if not relevant:
@@ -168,6 +210,7 @@ def assess_stockist_lead(
             "manual_review": False,
             "reasons": ["fashion_retail_evidence_missing"],
             "contacts": paths,
+            "entity": quality,
         }
     if not _contactable(paths):
         return {
@@ -175,6 +218,7 @@ def assess_stockist_lead(
             "manual_review": False,
             "reasons": ["no_usable_contact_path"],
             "contacts": paths,
+            "entity": quality,
         }
     if LEAD_RELEVANCE_RE.search(text):
         reasons.append("fashion_retail_page_evidence")
@@ -189,6 +233,7 @@ def assess_stockist_lead(
         "manual_review": True,
         "reasons": reasons,
         "contacts": paths,
+        "entity": quality,
     }
 
 
@@ -204,6 +249,18 @@ def attach_stockist_lead(
     evidence["stockist_lead"] = result["stockist_lead"]
     evidence["manual_review"] = result["manual_review"]
     evidence["stockist_lead_reasons"] = list(result["reasons"])
+    entity = result.get("entity") or {}
+    for key in (
+        "entity_is_business",
+        "entity_relationship",
+        "geographic_relevance",
+        "geographic_evidence",
+        "business_context",
+        "entity_quality",
+        "excluded_from_lead_eval",
+    ):
+        if key in entity:
+            evidence[key] = entity[key]
     return replace(row, evidence=evidence)
 
 
