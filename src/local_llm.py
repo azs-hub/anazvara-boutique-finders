@@ -14,7 +14,7 @@ import json
 import os
 import re
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import requests
@@ -67,7 +67,8 @@ RELEVANCE_VALUES = {"HIGH", "MEDIUM", "LOW", "UNKNOWN"}
 PHYSICAL_VALUES = {"YES", "NO", "UNKNOWN"}
 YES_NO_UNKNOWN = {"YES", "NO", "UNKNOWN"}
 PRICE_VALUES = {"BUDGET", "MID_RANGE", "PREMIUM", "LUXURY", "UNKNOWN"}
-STOCKIST_VALUES = {"HIGH", "MEDIUM", "LOW", "NO", "UNKNOWN"}
+STOCKIST_VALUES = {"YES", "NO", "UNKNOWN"}
+OWN_LABEL_TYPES = {"DESIGNER", "OWN_BRAND", "WHOLESALE"}
 DESIGNER_POSITIONING = {
     "MULTI_DESIGNER",
     "DESIGNER_FOCUSED",
@@ -104,13 +105,97 @@ LOCAL_BUSINESS_TYPES = {
     "jewelrystore",
 }
 
-SYSTEM_PROMPT = """You classify fashion businesses from extracted website evidence.
-Return JSON only. Do not invent facts. Use UNKNOWN when evidence is missing.
-Organization or HQ address alone is not a physical store.
+SYSTEM_PROMPT = """You classify whether a page is a plausible stockist lead for an independent contemporary fashion label.
+
+The key field is potential_stockist = YES | NO | UNKNOWN.
+This is independent of women_fashion. A real women's fashion business can still be potential_stockist = NO.
+
+YES only when website evidence shows a retailer that could carry other brands, for example:
+- physical fashion boutique or curated independent-designer store
+- multi-brand / multi-designer store, or a retailer/stockist presenting several labels
+- fashion/lifestyle concept store with a meaningful retail component
+- women's fashion retailer whose positioning could fit an independent label
+
+Do not require every positive signal. Use the total evidence.
+
+NO when the candidate is primarily:
+- a single brand / own-label designer / studio selling only its own products
+- a manufacturer or wholesaler
+- a marketplace that is not an individual retail store
+- a blog, magazine, article, roundup, directory, or the publisher of a list
+- a service business with incidental clothing, or unrelated to fashion retail
+
+UNKNOWN when evidence is insufficient. Do not turn fashion keywords or the search query into YES.
+
+potential_stockist = YES requires brief evidence explaining why it is a stockist prospect.
+Useful evidence: "Physical boutique presenting multiple independent fashion labels."
+Not sufficient alone: "Sells women's clothes", "Fashion website", "Has dresses", "Located in Mumbai".
+
 Directory, article, and listicle pages are not the business itself.
 Never use names like Visit Site, Cart, Checkout, or Order Summary.
+Organization or HQ address alone is not a physical store.
 Do not invent a price range or sustainability claim.
+Return every field in the schema. Use UNKNOWN when evidence is missing.
 """
+
+REQUIRED_SCHEMA_FIELDS = (
+    "is_business",
+    "business_name",
+    "business_type",
+    "women_fashion",
+    "physical_store",
+    "city",
+    "carries_other_brands",
+    "designer_positioning",
+    "sustainability_focus",
+    "price_positioning",
+    "observed_price_range",
+    "style_fit",
+    "potential_stockist",
+    "confidence",
+    "evidence",
+)
+QWEN_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "is_business": {"type": "boolean"},
+        "business_name": {"type": "string"},
+        "business_type": {"type": "string", "enum": sorted(AI_BUSINESS_TYPES)},
+        "women_fashion": {"type": "string", "enum": sorted(RELEVANCE_VALUES)},
+        "physical_store": {"type": "string", "enum": sorted(PHYSICAL_VALUES)},
+        "city": {"type": "string"},
+        "carries_other_brands": {"type": "string", "enum": sorted(YES_NO_UNKNOWN)},
+        "designer_positioning": {"type": "string", "enum": sorted(DESIGNER_POSITIONING)},
+        "sustainability_focus": {"type": "string", "enum": sorted(RELEVANCE_VALUES)},
+        "price_positioning": {"type": "string", "enum": sorted(PRICE_VALUES)},
+        "observed_price_range": {"type": "string"},
+        "style_fit": {"type": "string", "enum": sorted(RELEVANCE_VALUES)},
+        "potential_stockist": {"type": "string", "enum": sorted(STOCKIST_VALUES)},
+        "confidence": {"type": "string", "enum": ["HIGH", "LOW", "MEDIUM"]},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": list(REQUIRED_SCHEMA_FIELDS),
+}
+STOCKIST_YES_RE = re.compile(
+    r"\b(multi[\s\-]?brand|multi[\s\-]?designer|"
+    r"several (?:designers?|brands?|labels?)|"
+    r"multiple (?:independent )?(?:fashion )?(?:labels?|designers?|brands?)|"
+    r"carrying (?:multiple |other )?(?:brands?|designers?|labels?)|"
+    r"brands? (?:available|carried|sold|listed)|designers? listed|"
+    r"concept store|curated (?:multi[\s\-]?brand|selection)|"
+    r"we (?:carry|stock|represent)|stockists? of)\b",
+    re.IGNORECASE,
+)
+WEAK_STOCKIST_EVIDENCE_RE = re.compile(
+    r"^(sells women'?s clothes|fashion website|has dresses|located in [\w\s]+|"
+    r"women'?s fashion|fashion business|has clothing)$",
+    re.IGNORECASE,
+)
+OWN_LABEL_RE = re.compile(
+    r"\b(own[\s\-]?label|own[\s\-]?brand|our own collection|designer studio|"
+    r"we design|only our (?:own )?brand)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -124,6 +209,8 @@ class LLMCallResult:
     raw: dict | None
     validated: dict | None
     elapsed_seconds: float
+    failure_kind: str | None = None
+    schema_errors: list[str] = field(default_factory=list)
 
 
 def ollama_enabled(explicit: bool | None = None) -> bool:
@@ -182,8 +269,6 @@ def ambiguity_reason(
         return "roundup_without_page_text"
     if not (page_evidence.text or page_evidence.title or page_evidence.structured_facts):
         return "insufficient_page_evidence"
-    if is_rules_confident(row):
-        return "rules_already_confident"
     return None
 
 
@@ -380,13 +465,24 @@ def validate_llm_result(
     validated["observed_price_range"] = observed
 
     validated["style_fit"] = _enum_value(raw.get("style_fit"), RELEVANCE_VALUES, "UNKNOWN")
-    validated["potential_stockist"] = _enum_value(
-        raw.get("potential_stockist"), STOCKIST_VALUES, "UNKNOWN"
-    )
-    validated["confidence"] = _enum_value(raw.get("confidence"), {"HIGH", "MEDIUM", "LOW"}, "LOW")
     evidence_items = raw.get("evidence")
     if isinstance(evidence_items, list):
         validated["evidence"] = [str(item)[:200] for item in evidence_items[:12]]
+    stockist, stockist_rejected = _validate_potential_stockist(
+        raw,
+        payload,
+        text_blob,
+        is_business=validated["is_business"],
+        ai_type=validated["business_type"],
+        positioning=validated["designer_positioning"],
+        carries_other=validated["carries_other_brands"],
+        evidence_items=validated["evidence"],
+        source_type=source_type,
+        signals=signals,
+    )
+    validated["potential_stockist"] = stockist
+    rejected.extend(stockist_rejected)
+    validated["confidence"] = _enum_value(raw.get("confidence"), {"HIGH", "MEDIUM", "LOW"}, "LOW")
     validated["rejected"] = rejected
     return validated
 
@@ -400,6 +496,7 @@ def attach_llm_result(row: BusinessCandidate, result: LLMCallResult) -> Business
     evidence["rule_city"] = row.city
     evidence["rule_business_name"] = row.business_name
     evidence["rule_confidence"] = row.confidence.value
+    evidence["rule_potential_stockist"] = "UNKNOWN"
     validated = result.validated or empty_validated()
     evidence["ai_is_business"] = validated.get("is_business")
     evidence["ai_business_type"] = validated.get("business_type")
@@ -408,11 +505,14 @@ def attach_llm_result(row: BusinessCandidate, result: LLMCallResult) -> Business
     evidence["ai_city"] = validated.get("city")
     evidence["ai_business_name"] = validated.get("business_name")
     evidence["ai_confidence"] = validated.get("confidence")
+    evidence["ai_potential_stockist"] = validated.get("potential_stockist")
     evidence["ai"] = {
         "enabled": result.enabled,
         "attempted": result.attempted,
         "skipped_reason": result.skipped_reason,
         "error": result.error,
+        "failure_kind": result.failure_kind,
+        "schema_errors": list(result.schema_errors),
         "elapsed_seconds": result.elapsed_seconds,
         "raw": result.raw,
         "validated": validated,
@@ -523,6 +623,18 @@ class LocalLLMClient:
                 raw=None,
                 validated=None,
                 elapsed_seconds=round(time.monotonic() - started, 3),
+                failure_kind="http",
+            )
+        except requests.HTTPError as exc:
+            return LLMCallResult(
+                enabled=True,
+                attempted=True,
+                skipped_reason=None,
+                error=f"Ollama model error: {exc}",
+                raw=None,
+                validated=None,
+                elapsed_seconds=round(time.monotonic() - started, 3),
+                failure_kind="model",
             )
         except requests.RequestException as exc:
             return LLMCallResult(
@@ -533,6 +645,18 @@ class LocalLLMClient:
                 raw=None,
                 validated=None,
                 elapsed_seconds=round(time.monotonic() - started, 3),
+                failure_kind="http",
+            )
+        except _OllamaModelError as exc:
+            return LLMCallResult(
+                enabled=True,
+                attempted=True,
+                skipped_reason=None,
+                error=str(exc),
+                raw=None,
+                validated=None,
+                elapsed_seconds=round(time.monotonic() - started, 3),
+                failure_kind="model",
             )
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             return LLMCallResult(
@@ -543,6 +667,21 @@ class LocalLLMClient:
                 raw=None,
                 validated=None,
                 elapsed_seconds=round(time.monotonic() - started, 3),
+                failure_kind="schema",
+                schema_errors=["invalid_json"],
+            )
+        schema_errs = schema_errors(raw)
+        if schema_errs:
+            return LLMCallResult(
+                enabled=True,
+                attempted=True,
+                skipped_reason=None,
+                error="Schema validation failed: " + ", ".join(schema_errs),
+                raw=raw,
+                validated=None,
+                elapsed_seconds=round(time.monotonic() - started, 3),
+                failure_kind="schema",
+                schema_errors=schema_errs,
             )
         validated = validate_llm_result(raw, payload, row)
         return LLMCallResult(
@@ -568,7 +707,7 @@ class LocalLLMClient:
                     },
                 ],
                 "stream": False,
-                "format": "json",
+                "format": QWEN_JSON_SCHEMA,
                 "think": False,
                 "options": {"temperature": 0},
             },
@@ -576,6 +715,8 @@ class LocalLLMClient:
         )
         response.raise_for_status()
         body = response.json()
+        if isinstance(body, dict) and body.get("error"):
+            raise _OllamaModelError(f"Ollama model error: {body['error']}")
         content = ""
         message = body.get("message") if isinstance(body, dict) else None
         if isinstance(message, dict):
@@ -607,6 +748,124 @@ def maybe_classify_with_local_llm(
         enriched=enriched,
     )
     return attach_llm_result(row, result), result
+
+
+class _OllamaModelError(Exception):
+    """Ollama returned an application error for the model."""
+
+
+def schema_errors(raw: Any) -> list[str]:
+    """Return schema problems. Empty means the object matches QWEN_JSON_SCHEMA."""
+    if not isinstance(raw, dict):
+        return ["not_object"]
+    errors: list[str] = []
+    for field_name in REQUIRED_SCHEMA_FIELDS:
+        if field_name not in raw:
+            errors.append(f"missing:{field_name}")
+    if "is_business" in raw and not isinstance(raw["is_business"], bool):
+        errors.append("is_business_not_bool")
+    if "evidence" in raw and not isinstance(raw["evidence"], list):
+        errors.append("evidence_not_list")
+    string_fields = (
+        "business_name",
+        "business_type",
+        "women_fashion",
+        "physical_store",
+        "city",
+        "carries_other_brands",
+        "designer_positioning",
+        "sustainability_focus",
+        "price_positioning",
+        "observed_price_range",
+        "style_fit",
+        "potential_stockist",
+        "confidence",
+    )
+    for field_name in string_fields:
+        if field_name in raw and not isinstance(raw[field_name], str):
+            errors.append(f"{field_name}_not_string")
+    enum_fields = {
+        "business_type": AI_BUSINESS_TYPES,
+        "women_fashion": RELEVANCE_VALUES,
+        "physical_store": PHYSICAL_VALUES,
+        "carries_other_brands": YES_NO_UNKNOWN,
+        "designer_positioning": DESIGNER_POSITIONING,
+        "sustainability_focus": RELEVANCE_VALUES,
+        "price_positioning": PRICE_VALUES,
+        "style_fit": RELEVANCE_VALUES,
+        "potential_stockist": STOCKIST_VALUES,
+        "confidence": {"HIGH", "MEDIUM", "LOW"},
+    }
+    for field_name, allowed in enum_fields.items():
+        if field_name not in raw or not isinstance(raw[field_name], str):
+            continue
+        if _enum_value(raw[field_name], allowed, "") == "":
+            errors.append(f"invalid_enum:{field_name}")
+    return errors
+
+
+def _validate_potential_stockist(
+    raw: dict[str, Any],
+    payload: dict[str, Any],
+    text_blob: str,
+    *,
+    is_business: bool | None,
+    ai_type: str,
+    positioning: str,
+    carries_other: str,
+    evidence_items: list[str],
+    source_type: str,
+    signals: list[str],
+) -> tuple[str, list[str]]:
+    """Stockist YES needs supporting evidence. Fashion relevance is not enough."""
+    rejected: list[str] = []
+    stockist = _enum_value(raw.get("potential_stockist"), STOCKIST_VALUES, "UNKNOWN")
+    discovery = source_type in {"DIRECTORY", "ARTICLE"} or any(
+        item in signals for item in ("roundup_page", "publisher_not_boutique")
+    )
+    own_label = (
+        ai_type in OWN_LABEL_TYPES
+        or positioning == "OWN_LABEL"
+        or bool(OWN_LABEL_RE.search(text_blob))
+    )
+    if discovery:
+        if stockist == "YES":
+            rejected.append("discovery_page_not_stockist")
+        return "NO", rejected
+    if is_business is False:
+        if stockist == "YES":
+            rejected.append("not_a_business")
+        return "NO", rejected
+    if own_label and carries_other != "YES":
+        if stockist == "YES":
+            rejected.append("own_label_not_stockist")
+        return "NO", rejected
+    if stockist != "YES":
+        return stockist, rejected
+    if not evidence_items:
+        rejected.append("stockist_yes_without_evidence")
+        return "UNKNOWN", rejected
+    if all(WEAK_STOCKIST_EVIDENCE_RE.match(item.strip()) for item in evidence_items):
+        rejected.append("stockist_yes_weak_evidence")
+        return "UNKNOWN", rejected
+    if not STOCKIST_YES_RE.search(text_blob):
+        if own_label or OWN_LABEL_RE.search(text_blob) or _looks_like_own_designer_store(text_blob):
+            rejected.append("designer_store_not_stockist")
+            return "NO", rejected
+        rejected.append("stockist_yes_without_page_evidence")
+        return "UNKNOWN", rejected
+    return "YES", rejected
+
+
+def _looks_like_own_designer_store(text_blob: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(women designer store|designer store|designer wear|"
+            r"our (?:latest )?collections?)\b",
+            text_blob,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _exact_rule_business_type(value: Any) -> BusinessType | None:

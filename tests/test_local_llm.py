@@ -28,12 +28,14 @@ from content_extraction import BusinessSignals, PageEvidence, StructuredFact, ex
 from local_llm import (
     LLMCallResult,
     LocalLLMClient,
+    QWEN_JSON_SCHEMA,
     ambiguity_reason,
     apply_unknown_fills,
     attach_llm_result,
     build_llm_payload,
     is_rules_confident,
     maybe_classify_with_local_llm,
+    schema_errors,
     validate_llm_result,
 )
 
@@ -120,7 +122,7 @@ class AmbiguityTests(unittest.TestCase):
         reason = ambiguity_reason(row, _candidate(result_type=ResultType.DIRECTORY), _page())
         self.assertEqual(reason, "source_not_website")
 
-    def test_confident_rules_are_skipped(self) -> None:
+    def test_confident_identity_is_still_sent_for_stockist(self) -> None:
         row = _row(
             business_type=BusinessType.BOUTIQUE,
             women_fashion_relevance=Relevance.HIGH,
@@ -130,10 +132,7 @@ class AmbiguityTests(unittest.TestCase):
             evidence={"name_confidence": "HIGH", "signals": ["direct_website"]},
         )
         self.assertTrue(is_rules_confident(row))
-        self.assertEqual(
-            ambiguity_reason(row, _candidate(), _page()),
-            "rules_already_confident",
-        )
+        self.assertIsNone(ambiguity_reason(row, _candidate(), _page()))
 
     def test_unknown_type_is_ambiguous(self) -> None:
         self.assertIsNone(ambiguity_reason(_row(), _candidate(), _page()))
@@ -442,7 +441,146 @@ class ClientTests(unittest.TestCase):
         session.post.assert_called_once()
         body = session.post.call_args.kwargs["json"]
         self.assertEqual(body["model"], "qwen3.5:9b")
-        self.assertEqual(body["format"], "json")
+        self.assertEqual(body["format"], QWEN_JSON_SCHEMA)
+        self.assertIn("potential_stockist", body["format"]["required"])
+        self.assertIn("is_business", body["format"]["required"])
+
+
+class SchemaAndStockistTests(unittest.TestCase):
+    def test_missing_is_business_is_schema_error(self) -> None:
+        raw = _ai_payload()
+        del raw["is_business"]
+        errors = schema_errors(raw)
+        self.assertIn("missing:is_business", errors)
+
+    def test_schema_failure_is_not_a_successful_call(self) -> None:
+        session = MagicMock()
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        incomplete = _ai_payload()
+        del incomplete["potential_stockist"]
+        response.json.return_value = {"message": {"content": json.dumps(incomplete)}}
+        session.post.return_value = response
+        result = LocalLLMClient(enabled=True, session=session).classify(
+            candidate=_candidate(),
+            row=_row(),
+            page_evidence=_page(),
+            signals=BusinessSignals(),
+        )
+        self.assertEqual(result.failure_kind, "schema")
+        self.assertIsNotNone(result.error)
+        self.assertIsNone(result.validated)
+
+    def test_curated_multi_brand_can_be_stockist_yes(self) -> None:
+        raw = _ai_payload(
+            business_type="MULTI_BRAND",
+            carries_other_brands="YES",
+            potential_stockist="YES",
+            evidence=["Physical boutique presenting multiple independent fashion labels."],
+        )
+        payload = build_llm_payload(
+            candidate=_candidate(),
+            row=_row(),
+            page_evidence=_page(
+                text="Curated multi-brand fashion boutique. Several designers listed."
+            ),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row())
+        self.assertEqual(validated["potential_stockist"], "YES")
+        self.assertEqual(validated["women_fashion"], "HIGH")
+        self.assertNotIn("stockist_yes_without_evidence", validated["rejected"])
+
+    def test_own_label_designer_is_stockist_no(self) -> None:
+        raw = _ai_payload(
+            business_type="DESIGNER",
+            designer_positioning="OWN_LABEL",
+            women_fashion="HIGH",
+            potential_stockist="YES",
+            evidence=["Sells women's clothes"],
+        )
+        payload = build_llm_payload(
+            candidate=_candidate(),
+            row=_row(business_type=BusinessType.DESIGNER),
+            page_evidence=_page(text="Designer studio. Our own collection of women's dresses."),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row(business_type=BusinessType.DESIGNER))
+        self.assertEqual(validated["women_fashion"], "HIGH")
+        self.assertEqual(validated["business_type"], "DESIGNER")
+        self.assertEqual(validated["potential_stockist"], "NO")
+        self.assertIn("own_label_not_stockist", validated["rejected"])
+
+    def test_weak_fashion_evidence_is_not_stockist_yes(self) -> None:
+        raw = _ai_payload(
+            potential_stockist="YES",
+            evidence=["Sells women's clothes", "Located in Mumbai"],
+        )
+        payload = build_llm_payload(
+            candidate=_candidate(),
+            row=_row(),
+            page_evidence=_page(text="Women's clothing boutique in Mumbai. Has dresses."),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row())
+        self.assertEqual(validated["potential_stockist"], "UNKNOWN")
+        self.assertTrue(
+            any(item.startswith("stockist_yes") for item in validated["rejected"])
+        )
+
+    def test_designer_boutique_without_other_brands_is_not_stockist(self) -> None:
+        raw = _ai_payload(
+            business_type="BOUTIQUE",
+            designer_positioning="INDEPENDENT_BOUTIQUE",
+            potential_stockist="YES",
+            evidence=[
+                "Physical boutique presenting multiple independent fashion labels.",
+                "Independent designer boutique that could stock other labels.",
+            ],
+        )
+        payload = build_llm_payload(
+            candidate=_candidate(),
+            row=_row(business_type=BusinessType.BOUTIQUE),
+            page_evidence=_page(
+                text="Women Designer Store and Women's Boutique. Designer wear, "
+                "traditional and Indo-Western collections."
+            ),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row(business_type=BusinessType.BOUTIQUE))
+        self.assertEqual(validated["women_fashion"], "HIGH")
+        self.assertEqual(validated["business_type"], "BOUTIQUE")
+        self.assertEqual(validated["potential_stockist"], "NO")
+        self.assertIn("designer_store_not_stockist", validated["rejected"])
+
+    def test_stockist_yes_without_evidence_list_is_unknown(self) -> None:
+        raw = _ai_payload(potential_stockist="YES", evidence=[])
+        payload = build_llm_payload(
+            candidate=_candidate(),
+            row=_row(),
+            page_evidence=_page(),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row())
+        self.assertEqual(validated["potential_stockist"], "UNKNOWN")
+        self.assertIn("stockist_yes_without_evidence", validated["rejected"])
+
+    def test_directory_cannot_be_stockist_yes(self) -> None:
+        raw = _ai_payload(potential_stockist="YES", is_business=True)
+        payload = build_llm_payload(
+            candidate=_candidate(result_type=ResultType.DIRECTORY),
+            row=_row(source_type="DIRECTORY"),
+            page_evidence=_page(),
+            signals=BusinessSignals(),
+        )
+        validated = validate_llm_result(raw, payload, _row(source_type="DIRECTORY"))
+        self.assertEqual(validated["is_business"], False)
+        self.assertEqual(validated["potential_stockist"], "NO")
+
+    def test_production_logic_does_not_hardcode_reference_names(self) -> None:
+        source = (SRC_DIR / "local_llm.py").read_text(encoding="utf-8").lower()
+        self.assertNotIn("villa mor", source)
+        self.assertNotIn("rozina", source)
 
 
 if __name__ == "__main__":

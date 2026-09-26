@@ -4,7 +4,7 @@ Free Python application that discovers clothing and fashion boutiques city by ci
 
 The application does **not** use cloud AI/LLM APIs and does **not** consume OpenAI tokens.
 
-Optional local classification (Ollama + `qwen3.5:9b`) can run **after** the rule engine for ambiguous WEBSITE records only. It is off by default (`OLLAMA_ENABLED=0`). Rule fields are never overwritten; validated Qwen output is stored separately (`rule_*` vs `ai_*`).
+Optional local classification (Ollama + `qwen3.5:9b`) runs **after** the rule engine for WEBSITE records that have page evidence. The key AI field is `potential_stockist` (`YES|NO|UNKNOWN`): whether the business looks like a plausible Anazvara stockist, not merely a women's fashion business. It is off by default (`OLLAMA_ENABLED=0`). Rule fields are never overwritten; validated Qwen output is stored separately (`rule_*` vs `ai_*`).
 
 ```bash
 source .venv/bin/activate
@@ -284,7 +284,8 @@ anazvara-boutique-scraper/
 │   ├── test_enrichment.py
 │   ├── test_enrichment_benchmark.py
 │   ├── test_structured_evidence.py
-│   └── test_local_llm.py
+│   ├── test_local_llm.py
+│   └── test_llm_benchmark.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
