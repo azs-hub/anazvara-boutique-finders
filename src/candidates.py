@@ -7,7 +7,7 @@ boutique links is a later step (see ``expand_from_page``).
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.parse import urlparse
 
 from classification import ResultType, classify_url
@@ -26,8 +26,9 @@ class Candidate:
         domain: Normalized host (no ``www.``).
         snippet: Search snippet.
         result_type: Heuristic class (WEBSITE, DIRECTORY, …).
-        search_query: Query that produced this hit.
+        search_query: Query that produced this hit (first/preferred query).
         search_source: Search-engine name from the provider.
+        discovered_by_queries: All search queries that produced this hit.
     """
 
     title: str
@@ -38,6 +39,7 @@ class Candidate:
     result_type: ResultType
     search_query: str
     search_source: str
+    discovered_by_queries: tuple[str, ...] = ()
 
 
 def _homepage_path(path: str) -> bool:
@@ -88,6 +90,7 @@ def candidate_from_search_result(
         result_type=result_type,
         search_query=search_query,
         search_source=result.source,
+        discovered_by_queries=(search_query,) if search_query else (),
     )
 
 
@@ -111,6 +114,50 @@ def _prefer_candidate(current: Candidate, challenger: Candidate) -> Candidate:
             return challenger
         return current
     return current
+
+
+def discovery_queries(candidate: Candidate) -> tuple[str, ...]:
+    """Return unique originating queries, preferring explicit provenance."""
+    if candidate.discovered_by_queries:
+        return tuple(dict.fromkeys(query for query in candidate.discovered_by_queries if query))
+    if candidate.search_query:
+        return (candidate.search_query,)
+    return ()
+
+
+def with_merged_discovery(winner: Candidate, group: list[Candidate]) -> Candidate:
+    """Keep the preferred candidate and union discovery-query provenance."""
+    seen: list[str] = []
+    for item in group:
+        for query in discovery_queries(item):
+            if query not in seen:
+                seen.append(query)
+    return replace(
+        winner,
+        discovered_by_queries=tuple(seen),
+        search_query=winner.search_query or (seen[0] if seen else ""),
+    )
+
+
+def dedupe_candidates(candidates: list[Candidate]) -> list[Candidate]:
+    """Reuse in-search keys/preference, then union query provenance.
+
+    Same algorithm as ``candidates_from_search_results``: WEBSITE by domain,
+    other types by exact URL, homepage-preferring winner.
+    """
+    grouped: dict[tuple[str, str], Candidate] = {}
+    members: dict[tuple[str, str], list[Candidate]] = {}
+    order: list[tuple[str, str]] = []
+    for candidate in candidates:
+        key = _dedupe_key(candidate)
+        if key not in grouped:
+            grouped[key] = candidate
+            members[key] = [candidate]
+            order.append(key)
+        else:
+            members[key].append(candidate)
+            grouped[key] = _prefer_candidate(grouped[key], candidate)
+    return [with_merged_discovery(grouped[key], members[key]) for key in order]
 
 
 def candidates_from_search_results(

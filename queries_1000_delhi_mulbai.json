@@ -1,0 +1,22 @@
+[
+  {
+    "query": "women's fashion boutique Mumbai",
+    "limit": 150
+  },
+  {
+    "query": "multi brand fashion store Mumbai",
+    "limit": 100
+  },
+  {
+    "query": "women's fashion boutique Bangalore",
+    "limit": 100
+  },
+  {
+    "query": "multi brand fashion store Bangalore",
+    "limit": 100
+  },
+  {
+    "query": "women's fashion boutique Delhi",
+    "limit": 200
+  }
+]

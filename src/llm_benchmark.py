@@ -1,8 +1,9 @@
 """Compare rule-only identification against rules + local Qwen.
 
 Usage:
-    python src/llm_benchmark.py "women's fashion boutique Mumbai" --limit 20
-    python src/llm_benchmark.py "women's fashion boutique Mumbai" --limit 20 --no-llm
+    python src/llm_benchmark.py "women's fashion boutique Goa" --limit 20
+    python src/llm_benchmark.py "women's fashion boutique Goa" --limit 20 --no-llm
+    python src/llm_benchmark.py --batch queries_1000.json
 
 Reuses the existing fetch + rule pipeline. Does not replace rule fields.
 Path B fills UNKNOWN rule values from validated Qwen output only.
@@ -41,7 +42,7 @@ from business_candidates import (
     identify_business_candidates,
     merge_in_memory_duplicates,
 )
-from candidates import candidates_from_search_results
+from candidates import candidates_from_search_results, discovery_queries
 from classification import ResultType
 from content_extraction import empty_evidence, empty_signals, extract_business_signals
 from enrichment import enrich_candidate
@@ -118,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-json",
         action="store_true",
         help="Skip writing output/benchmark_llm_*.json",
+    )
+    parser.add_argument(
+        "--batch",
+        metavar="FILE",
+        help="Run multi-query batch benchmark from a JSON array of {query, limit}",
     )
     return parser
 
@@ -364,6 +370,8 @@ def evaluate_candidates(
             elif page_for_llm is not None:
                 pages_sent = [page_for_llm.final_url or page_for_llm.source_url]
             inspect_evidence = dict(attached.evidence or {})
+            inspect_evidence["discovery_query"] = candidate.search_query
+            inspect_evidence["discovered_by_queries"] = list(discovery_queries(candidate))
             inspect_evidence["qwen_inspection"] = {
                 "attempted": result.attempted,
                 "skipped_reason": result.skipped_reason,
@@ -607,6 +615,10 @@ def run_llm_benchmark(query: str, limit: int, *, enable_llm: bool) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.batch:
+        from batch_benchmark import run_batch_main
+
+        return run_batch_main(args)
     if args.limit < 1:
         print("--limit must be at least 1", file=sys.stderr)
         return 1

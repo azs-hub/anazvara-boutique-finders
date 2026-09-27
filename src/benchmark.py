@@ -154,6 +154,9 @@ def business_to_dict(row: BusinessCandidate) -> dict:
 
 
 def candidate_to_dict(row: Candidate) -> dict:
+    queries = list(getattr(row, "discovered_by_queries", ()) or ())
+    if not queries and getattr(row, "search_query", ""):
+        queries = [row.search_query]
     return {
         "title": row.title,
         "url": row.url,
@@ -162,6 +165,9 @@ def candidate_to_dict(row: Candidate) -> dict:
         "result_type": row.result_type.value,
         "snippet": row.snippet,
         "search_source": row.search_source,
+        "search_query": getattr(row, "search_query", ""),
+        "discovery_query": getattr(row, "search_query", ""),
+        "discovered_by_queries": queries,
     }
 
 
