@@ -169,7 +169,9 @@ def candidates_from_search_results(
 ) -> list[Candidate]:
     """Classify, normalize, and deduplicate hits from a single search.
 
-    Does not consult the historical SQLite database.
+    A hit is kept even when the title and snippet do not contain boutique,
+    store, fashion, designer, or multi-brand wording. Later stages qualify
+    candidates. Does not consult the historical SQLite database.
     """
     grouped: dict[tuple[str, str], Candidate] = {}
     order: list[tuple[str, str]] = []

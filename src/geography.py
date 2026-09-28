@@ -60,6 +60,8 @@ _PLACES: dict[str, dict[str, object]] = {
             "arpora",
             "baga",
             "fontainhas",
+            "saligao",
+            "palolem",
         ),
     },
     "mumbai": {
@@ -188,6 +190,35 @@ class ExpectedPlace:
 
     def label(self) -> str:
         return ", ".join(part for part in (self.city, self.state, self.country) if part)
+
+
+def _display_location(term: str) -> str:
+    """Title-case a stored place label for use in a search query."""
+    return " ".join(
+        part[:1].upper() + part[1:] if part else part for part in str(term).split()
+    )
+
+
+def search_locations(place: ExpectedPlace) -> tuple[str, ...]:
+    """Location labels for discovery queries.
+
+    The city comes first, then aliases and localities from the place catalog.
+    Unknown cities return only their own name. This does not change geographic
+    verification; it only lists strings the query generator may attach.
+    """
+    spec = _spec_for_token(place.city)
+    if spec is None:
+        return (place.city,)
+    seen = {place.city.casefold()}
+    labels = [place.city]
+    extras = (*tuple(spec["aliases"]), *tuple(spec["localities"]))  # type: ignore[misc]
+    for term in extras:
+        key = str(term).strip().casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        labels.append(_display_location(key))
+    return tuple(labels)
 
 
 def known_places() -> list[ExpectedPlace]:
