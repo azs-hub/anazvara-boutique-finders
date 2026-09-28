@@ -519,7 +519,65 @@ def merge_in_memory_duplicates(
             order.append(key)
         else:
             grouped[key] = _merge_pair(grouped[key], row)
-    return [grouped[key] for key in order]
+    return _merge_same_name([grouped[key] for key in order])
+
+
+def _merge_same_name(rows: list[BusinessCandidate]) -> list[BusinessCandidate]:
+    """Collapse the same shop found from a website and from an article.
+
+    Different websites, Instagram accounts, phones, or cities stay separate.
+    """
+    kept: list[BusinessCandidate] = []
+    for row in rows:
+        match_at = None
+        for index, existing in enumerate(kept):
+            if _same_business_name(existing, row):
+                match_at = index
+                break
+        if match_at is None:
+            kept.append(row)
+        else:
+            kept[match_at] = _merge_pair(kept[match_at], row)
+    return kept
+
+
+def _same_business_name(left: BusinessCandidate, right: BusinessCandidate) -> bool:
+    left_name = re.sub(r"\s+", " ", (left.business_name or "").strip().casefold())
+    right_name = re.sub(r"\s+", " ", (right.business_name or "").strip().casefold())
+    if not left_name or not right_name or left_name == UNKNOWN.casefold() or left_name != right_name:
+        return False
+    left_domain = extract_domain(left.website) if left.website else None
+    right_domain = extract_domain(right.website) if right.website else None
+    if left_domain and right_domain and left_domain != right_domain:
+        return False
+    left_ig = normalize_instagram(left.instagram)
+    right_ig = normalize_instagram(right.instagram)
+    if left_ig and right_ig and left_ig != right_ig:
+        return False
+    left_phone = normalize_phone(left.phone)
+    right_phone = normalize_phone(right.phone)
+    if left_phone and right_phone and left_phone != right_phone:
+        return False
+    cities = {
+        city.strip().casefold()
+        for city in (left.city, right.city)
+        if city and city.strip().casefold() not in {"", UNKNOWN.casefold()}
+    }
+    return len(cities) <= 1
+
+
+def _merge_discovery_sources(left: dict, right: dict) -> list[dict]:
+    rows: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for source in list(left.get("discovery_sources") or []) + list(right.get("discovery_sources") or []):
+        if not isinstance(source, dict):
+            continue
+        key = (str(source.get("type") or ""), str(source.get("url") or source.get("query") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(source)
+    return rows
 
 
 def _duplicate_key(row: BusinessCandidate) -> tuple[str, str] | None:
@@ -547,6 +605,7 @@ def _merge_pair(
     extra_sources.append(right.source_url)
     extra_sources.extend((right.evidence or {}).get("merged_source_urls") or [])
     evidence["merged_source_urls"] = list(dict.fromkeys(extra_sources))
+    evidence["discovery_sources"] = _merge_discovery_sources(evidence, right.evidence or {})
     merged_evidence = list(evidence.get("merged_evidence") or [])
     merged_evidence.append(dict(right.evidence or {}))
     evidence["merged_evidence"] = merged_evidence

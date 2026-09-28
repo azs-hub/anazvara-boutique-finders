@@ -126,6 +126,23 @@ CSV_COLUMNS = [
     "discovered_by_queries",
     "source_urls",
     "export_evidence",
+    "state",
+    "country",
+    "physical_store_confidence",
+    "fashion_relevance",
+    "retail_model",
+    "multi_brand_confidence",
+    "anazvara_fit_score",
+    "geography_confidence",
+    "business_confidence",
+    "discovery_source",
+    "discovery_source_url",
+    "discovery_source_type",
+    "evidence_physical_store",
+    "evidence_multi_brand",
+    "evidence_fashion",
+    "evidence_fit",
+    "reason",
 ]
 
 OUTPUT_FILES = {
@@ -546,7 +563,7 @@ def _unrelated_with_evidence(row: BusinessCandidate) -> bool:
     context = _upper(_entity_field(row, "business_context"), "UNKNOWN")
     if row.business_type is BusinessType.MARKETPLACE or context == "MARKETPLACE":
         return True
-    if context == "HOTEL_RESORT_BOUTIQUE":
+    if context == "HOTEL_RESORT_BOUTIQUE" and not _fashion_retail_evidence(row):
         return True
     blob = " ".join(_qwen_evidence(row) + [_record_text(row)])
     if QWEN_UNRELATED_RE.search(" ".join(_qwen_evidence(row))):
@@ -735,11 +752,12 @@ def assign_export_group(
         reasons.append("unrelated_or_non_retail_business")
         return _decision(GROUP_EXCLUDED, reasons, conflicts, resolved=bool(conflicts))
     if relationship == "MENTIONED_BUSINESS":
-        if _fashion_retail_evidence(row) and _usable_contact(row):
-            reasons.append("mentioned_business_not_self")
-            return _decision(GROUP_REVIEW, reasons, conflicts, unresolved=bool(conflicts))
-        reasons.append("article_mention_not_verified_shop")
-        return _decision(GROUP_EXCLUDED, reasons, conflicts, resolved=bool(conflicts))
+        reasons.append(
+            "mentioned_business_not_self"
+            if _fashion_retail_evidence(row) and _usable_contact(row)
+            else "mentioned_business_needs_verification"
+        )
+        return _decision(GROUP_REVIEW, reasons, conflicts, unresolved=True)
     if relationship != "SELF":
         reasons.append(f"entity_relationship_not_self:{relationship}")
         return _decision(GROUP_REVIEW, reasons, conflicts, unresolved=True)
@@ -870,6 +888,40 @@ def build_export_row(
         "conflicts": decision["conflicts"],
         "records_merged": records_merged,
         "export_evidence": evidence_items or _lead_reasons(row),
+        **_fit_export_fields(row),
+    }
+
+
+def _fit_block(row: BusinessCandidate) -> dict[str, Any]:
+    fit = _evidence(row).get("fit")
+    return dict(fit) if isinstance(fit, dict) else {}
+
+
+def _fit_export_fields(row: BusinessCandidate) -> dict[str, Any]:
+    fit = _fit_block(row)
+    evidence = _evidence(row)
+    sources = evidence.get("discovery_sources") or []
+    first = sources[0] if sources else {}
+    return {
+        "state": evidence.get("expected_state") or evidence.get("state") or "",
+        "country": evidence.get("expected_country") or evidence.get("country") or "",
+        "physical_store_confidence": fit.get("physical_store_confidence") or "",
+        "fashion_relevance": fit.get("fashion_relevance") or row.fashion_relevance.value,
+        "retail_model": fit.get("retail_model") or evidence.get("retail_model") or "",
+        "multi_brand_confidence": fit.get("multi_brand_confidence") or "",
+        "anazvara_fit_score": fit.get("anazvara_fit_score", ""),
+        "geography_confidence": fit.get("geography_confidence") or "",
+        "business_confidence": fit.get("business_confidence") or "",
+        "discovery_source": evidence.get("discovered_from") or (first.get("type") if isinstance(first, dict) else ""),
+        "discovery_source_url": evidence.get("discovery_source_url") or (first.get("url") if isinstance(first, dict) else ""),
+        "discovery_source_type": evidence.get("discovery_source_type") or (first.get("type") if isinstance(first, dict) else ""),
+        "evidence_physical_store": fit.get("evidence_physical_store") or [],
+        "evidence_multi_brand": fit.get("evidence_multi_brand") or [],
+        "evidence_fashion": fit.get("evidence_fashion") or [],
+        "evidence_fit": fit.get("evidence_fit") or [],
+        "reason": fit.get("reason") or "",
+        "status": fit.get("status") or "",
+        "explanation": fit.get("explanation") or evidence.get("explanation") or "",
     }
 
 
@@ -901,6 +953,23 @@ def _csv_view(row: dict[str, Any]) -> dict[str, Any]:
         "discovered_by_queries": _join(row.get("discovered_by_queries") or []),
         "source_urls": _join(row.get("source_urls") or []),
         "export_evidence": evidence_text,
+        "state": row.get("state") or "",
+        "country": row.get("country") or "",
+        "physical_store_confidence": row.get("physical_store_confidence") or "",
+        "fashion_relevance": row.get("fashion_relevance") or "",
+        "retail_model": row.get("retail_model") or "",
+        "multi_brand_confidence": row.get("multi_brand_confidence") or "",
+        "anazvara_fit_score": row.get("anazvara_fit_score") if row.get("anazvara_fit_score") not in {None, ""} else "",
+        "geography_confidence": row.get("geography_confidence") or "",
+        "business_confidence": row.get("business_confidence") or "",
+        "discovery_source": row.get("discovery_source") or "",
+        "discovery_source_url": row.get("discovery_source_url") or "",
+        "discovery_source_type": row.get("discovery_source_type") or "",
+        "evidence_physical_store": _join(row.get("evidence_physical_store") or []),
+        "evidence_multi_brand": _join(row.get("evidence_multi_brand") or []),
+        "evidence_fashion": _join(row.get("evidence_fashion") or []),
+        "evidence_fit": _join(row.get("evidence_fit") or []),
+        "reason": row.get("reason") or row.get("export_reason") or "",
     }
 
 

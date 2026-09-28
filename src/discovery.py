@@ -12,9 +12,8 @@ Flow implemented so far:
         → later: SQLite
 
 Search stays behind ``SearchProvider``. Candidate building lives in
-``candidates.py``. Directory and article hits are classified and kept;
-``expand_from_page`` is the later hook for extracting boutique links from
-those pages (not implemented here).
+``candidates.py``. Directory and article hits are classified and kept.
+``expand_from_page`` fetches those pages and returns the businesses they name.
 
 ``BoutiqueDiscovery`` (city + quantity + historical SQLite exclusion) is
 still unimplemented.

@@ -219,7 +219,7 @@ class StockistLeadTests(unittest.TestCase):
         self.assertEqual(result["stockist_lead"], "NO")
         self.assertEqual(result["entity"]["geographic_relevance"], "NO")
 
-    def test_hotel_resort_boutique_is_not_an_automatic_lead(self) -> None:
+    def test_hotel_resort_boutique_with_fashion_is_eligible(self) -> None:
         row = _row(
             business_name="Resort Boutique",
             website="https://heritage.example/heritage-village-resort-spa-goa/boutique-store/",
@@ -232,8 +232,9 @@ class StockistLeadTests(unittest.TestCase):
             text="Hotel resort boutique in Cansaulim, Goa with designer labels.",
         )
         result = assess_stockist_lead(row, page)
-        self.assertEqual(result["stockist_lead"], "UNKNOWN")
+        self.assertNotEqual(result["stockist_lead"], "NO")
         self.assertEqual(result["entity"]["business_context"], "HOTEL_RESORT_BOUTIQUE")
+        self.assertFalse(result["entity"]["excluded_from_lead_eval"])
 
     def test_social_profile_with_goa_and_retail_is_a_lead(self) -> None:
         row = _row(

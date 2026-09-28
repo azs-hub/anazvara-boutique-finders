@@ -10,12 +10,14 @@ from __future__ import annotations
 import json
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from benchmark import OUTPUT_DIR, candidate_to_dict, collect_search_results
 from candidates import Candidate, candidates_from_search_results, dedupe_candidates, discovery_queries
+from geography import resolve_expected_place
 from llm_benchmark import evaluate_candidates
 from searxng_provider import SearXNGSearchProvider
 
@@ -38,7 +40,16 @@ def load_batch_queries(path: Path | str) -> list[dict[str, Any]]:
         limit = int(item.get("limit", 20))
         if limit < 1:
             raise ValueError(f"Entry {index} limit must be at least 1")
-        specs.append({"query": query, "limit": limit})
+        specs.append(
+            {
+                "query": query,
+                "limit": limit,
+                "family": str(item.get("family") or ""),
+                "city": str(item.get("city") or "").strip(),
+                "state": str(item.get("state") or "").strip(),
+                "country": str(item.get("country") or "").strip(),
+            }
+        )
     return specs
 
 
@@ -95,6 +106,22 @@ def collect_batch_candidates(
         if error:
             errors.append({"stage": "search", "query": query, "error": error})
         candidates = candidates_from_search_results(raw, query)[:limit]
+        place = resolve_expected_place(
+            city=spec.get("city") or None,
+            state=spec.get("state") or None,
+            country=spec.get("country") or None,
+            query=query,
+        )
+        if place is not None:
+            candidates = [
+                replace(
+                    item,
+                    expected_city=place.city,
+                    expected_state=place.state,
+                    expected_country=place.country,
+                )
+                for item in candidates
+            ]
         raw_total += len(raw)
         collected.extend(candidates)
         progress(f"[BATCH] Retrieved: {len(candidates)}")

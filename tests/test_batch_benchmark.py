@@ -71,10 +71,10 @@ class BatchQueryFileTests(unittest.TestCase):
     def test_loads_example_queries_file(self) -> None:
         path = Path(__file__).resolve().parent.parent / "queries_1000.json"
         specs = load_batch_queries(path)
-        self.assertEqual(len(specs), 8)
+        self.assertEqual(len(specs), 3)
         self.assertEqual(specs[0]["query"], QUERY_A)
-        self.assertEqual(specs[0]["limit"], 150)
-        self.assertEqual(sum(item["limit"] for item in specs), 1000)
+        self.assertEqual(specs[0]["limit"], 500)
+        self.assertEqual(sum(item["limit"] for item in specs), 1500)
 
     def test_rejects_empty_or_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

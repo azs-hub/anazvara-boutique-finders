@@ -84,7 +84,7 @@ class EntityQualityTests(unittest.TestCase):
             website="https://stay.example/heritage-village-resort-spa-goa/boutique-store/",
         )
         self.assertEqual(result["business_context"], "HOTEL_RESORT_BOUTIQUE")
-        self.assertTrue(result["excluded_from_lead_eval"])
+        self.assertFalse(result["excluded_from_lead_eval"])
 
     def test_media_path_is_detected(self) -> None:
         self.assertTrue(

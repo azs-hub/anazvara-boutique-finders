@@ -189,10 +189,14 @@ def assess_geographic_relevance(
     instagram: str | None,
     facebook: str | None,
     page_text: str = "",
-    expected_location: str = DEFAULT_LOCATION,
+    expected_location: str | None = DEFAULT_LOCATION,
+    expected_city: str | None = None,
+    expected_state: str | None = None,
+    expected_country: str | None = None,
 ) -> tuple[str, list[str]]:
-    """Location must come from the entity, not the search query."""
-    del expected_location
+    """Location must come from the entity, not the search query alone."""
+    from geography import parse_expected_place, verify_geography
+
     profile = _profile_location_text(
         name=name,
         city=city,
@@ -201,30 +205,26 @@ def assess_geographic_relevance(
         facebook=facebook,
         page_text=page_text,
     )
-    goa_hits = [match.group(0) for match in GOA_RE.finditer(profile)]
-    foreign_hits = [match.group(0) for match in FOREIGN_PLACE_RE.finditer(profile)]
-    foreign_site = _foreign_tld(website)
-    evidence: list[str] = []
-    if goa_hits:
-        evidence.append("location_in_official_profile")
-    if address and GOA_RE.search(address):
-        evidence.append("goa_address")
-    if city and GOA_RE.search(city):
-        evidence.append("goa_city")
-    if foreign_hits:
-        evidence.append("foreign_place:" + ",".join(sorted(set(h.lower() for h in foreign_hits))))
-    if foreign_site:
-        evidence.append("foreign_website_tld")
-    goa_home = bool(
-        (address and GOA_RE.search(address)) or (city and GOA_RE.search(city))
+    place = parse_expected_place(
+        expected_location,
+        city=expected_city,
+        state=expected_state,
+        country=expected_country,
     )
-    if foreign_site and not goa_home:
-        return "NO", evidence or ["foreign_website_tld"]
-    if (foreign_hits or foreign_site) and not goa_hits:
-        return "NO", evidence or ["wrong_country"]
-    if goa_hits:
-        return "YES", evidence
-    return "UNKNOWN", evidence
+    relevance, evidence = verify_geography(
+        profile,
+        expected=place,
+        website=website,
+        address=address,
+        city=city,
+    )
+    if any(item.startswith("location_in_profile") for item in evidence):
+        evidence.append("location_in_official_profile")
+    if any(item == "address_matches_expected_place" for item in evidence):
+        evidence.append("matching_address")
+    if any(item == "city_field_matches_expected_place" for item in evidence):
+        evidence.append("matching_city")
+    return relevance, evidence
 
 
 def _entity_relationship(
@@ -317,7 +317,10 @@ def assess_entity_quality(
     instagram: str | None = None,
     facebook: str | None = None,
     business_type: str | None = None,
-    expected_location: str = DEFAULT_LOCATION,
+    expected_location: str | None = DEFAULT_LOCATION,
+    expected_city: str | None = None,
+    expected_state: str | None = None,
+    expected_country: str | None = None,
 ) -> dict[str, Any]:
     signals = list(signals or [])
     named = bool(name) and name != "UNKNOWN"
@@ -339,6 +342,9 @@ def assess_entity_quality(
         facebook=facebook,
         page_text=text,
         expected_location=expected_location,
+        expected_city=expected_city,
+        expected_state=expected_state,
+        expected_country=expected_country,
     )
     context = _business_context(
         relationship, hotel=hotel, business_type=business_type, text=text
@@ -386,15 +392,12 @@ def assess_entity_quality(
         and is_business == "YES"
         and geo == "YES"
         and identity_ok
-        and context != "HOTEL_RESORT_BOUTIQUE"
     ):
         excluded = False
     elif relationship in {"ARTICLE", "MEDIA", "DIRECTORY", "SOCIAL_POST"}:
         exclude_reason = f"not_self_business:{relationship}"
     elif geo == "NO":
         exclude_reason = "wrong_geography"
-    elif context == "HOTEL_RESORT_BOUTIQUE":
-        exclude_reason = "hotel_resort_boutique"
     elif not identity_ok:
         exclude_reason = "official_identity_weak"
     else:

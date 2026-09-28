@@ -126,12 +126,13 @@ def _entity_from_row(
     page_evidence: PageEvidence | None = None,
 ) -> dict[str, Any]:
     text = _text_blob(page_evidence, extra=row.business_name or "")
+    evidence = row.evidence or {}
     return assess_entity_quality(
         url=row.source_url or row.website,
         title=page_evidence.title if page_evidence else None,
         text=text,
         source_type=row.source_type,
-        signals=list((row.evidence or {}).get("signals") or []),
+        signals=list(evidence.get("signals") or []),
         name=row.business_name,
         city=row.city,
         address=row.address,
@@ -139,6 +140,10 @@ def _entity_from_row(
         instagram=row.instagram,
         facebook=row.facebook,
         business_type=row.business_type.value,
+        expected_location=evidence.get("expected_location") or None,
+        expected_city=evidence.get("expected_city") or None,
+        expected_state=evidence.get("expected_state") or None,
+        expected_country=evidence.get("expected_country") or None,
     )
 
 
@@ -261,6 +266,45 @@ def attach_stockist_lead(
     ):
         if key in entity:
             evidence[key] = entity[key]
+    text = _text_blob(page_evidence, extra=row.business_name or "")
+    if str(entity.get("entity_relationship") or "") == "MENTIONED_BUSINESS":
+        anchor = evidence.get("anchor_text")
+        text = " ".join(
+            part
+            for part in (row.business_name, row.address, row.city, str(anchor or ""))
+            if part
+        )
+    from stockist_fit import assess_stockist_fit
+
+    fit = assess_stockist_fit(
+        text,
+        business_name=row.business_name,
+        city=row.city,
+        address=row.address,
+        website=row.website,
+        instagram=row.instagram,
+        facebook=row.facebook,
+        phone=row.phone,
+        expected_city=evidence.get("expected_city"),
+        expected_state=evidence.get("expected_state"),
+        expected_country=evidence.get("expected_country"),
+        expected=evidence.get("expected_location"),
+        physical_store=row.physical_store.value,
+        relationship=str(entity.get("entity_relationship") or row.source_type or ""),
+    )
+    evidence["fit"] = fit
+    evidence["explanation"] = fit["explanation"]
+    for key in (
+        "physical_store_score",
+        "fashion_relevance_score",
+        "multi_brand_score",
+        "concept_store_score",
+        "anazvara_fit_score",
+        "retail_model",
+        "anazvara_fit",
+        "multi_brand",
+    ):
+        evidence[key] = fit[key]
     return replace(row, evidence=evidence)
 
 

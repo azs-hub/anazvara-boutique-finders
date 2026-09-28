@@ -1,7 +1,7 @@
 """Turn search hits into classified, normalized, in-search-deduped candidates.
 
-Directory and article candidates are kept. Expanding those pages for extra
-boutique links is a later step (see ``expand_from_page``).
+Directory and article candidates are kept. ``expand_from_page`` turns
+those pages into separate business records.
 """
 
 from __future__ import annotations
@@ -40,6 +40,9 @@ class Candidate:
     search_query: str
     search_source: str
     discovered_by_queries: tuple[str, ...] = ()
+    expected_city: str = ""
+    expected_state: str = ""
+    expected_country: str = ""
 
 
 def _homepage_path(path: str) -> bool:
@@ -193,13 +196,12 @@ def count_by_type(candidates: list[Candidate]) -> dict[ResultType, int]:
     return {result_type: counts[result_type] for result_type in ResultType}
 
 
-def expand_from_page(candidate: Candidate) -> list[Candidate]:
-    """Later: fetch DIRECTORY/ARTICLE pages and extract boutique links.
+def expand_from_page(candidate: Candidate | str, **kwargs) -> list:
+    """Fetch a directory or article page and extract the businesses it names.
 
-    Not implemented in this step. Kept as a stable hook so discovery can grow
-    without rewriting classification or search providers.
+    The listing page is a discovery source. Each named shop is returned as
+    its own business record. Pass ``page_evidence`` or ``html`` to skip HTTP.
     """
-    raise NotImplementedError(
-        "Directory/article page expansion is not implemented yet. "
-        f"{candidate.result_type.value} pages are classified and kept only."
-    )
+    from page_expansion import expand_from_page as _expand_from_page
+
+    return _expand_from_page(candidate, **kwargs)

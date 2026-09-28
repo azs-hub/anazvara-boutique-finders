@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import replace
@@ -66,6 +67,8 @@ from organic_lead_report import (
 )
 from qwen_inspection import build_qwen_inspection, print_qwen_inspection
 from stockist_lead import attach_stockist_lead, lead_of
+from entity_quality import looks_like_media_or_listicle
+from page_expansion import expand_from_page
 from page_inspection import inspect_candidate
 from searxng_provider import SearXNGSearchProvider
 
@@ -265,6 +268,49 @@ def match_stockist_references(rows: list[BusinessCandidate]) -> list[dict]:
     return results
 
 
+def _listing_candidate(candidate, page) -> bool:
+    if candidate.result_type in {ResultType.ARTICLE, ResultType.DIRECTORY}:
+        return True
+    return looks_like_media_or_listicle(
+        url=candidate.normalized_url or candidate.url,
+        title=getattr(page, "title", None) or candidate.title,
+        text=(getattr(page, "text", None) or "")[:500],
+        source_type=candidate.result_type.value,
+    )
+
+
+def _stamp_search_context(row: BusinessCandidate, candidate) -> BusinessCandidate:
+    evidence = dict(row.evidence or {})
+    if getattr(candidate, "expected_city", ""):
+        evidence["expected_city"] = candidate.expected_city
+        evidence["expected_state"] = getattr(candidate, "expected_state", "")
+        evidence["expected_country"] = getattr(candidate, "expected_country", "")
+        evidence["expected_location"] = ", ".join(
+            part
+            for part in (
+                candidate.expected_city,
+                evidence["expected_state"],
+                evidence["expected_country"],
+            )
+            if part
+        )
+    search_hit = {
+        "type": "search",
+        "url": candidate.normalized_url or candidate.url,
+        "title": candidate.title,
+        "query": candidate.search_query,
+    }
+    sources = [item for item in (evidence.get("discovery_sources") or []) if isinstance(item, dict)]
+    if candidate.search_query and search_hit not in sources:
+        sources.append(search_hit)
+    evidence["discovery_sources"] = sources
+    evidence.setdefault("discovered_from", "search")
+    evidence.setdefault("discovery_source_type", evidence.get("discovered_from") or "search")
+    evidence.setdefault("discovery_source_url", candidate.normalized_url or candidate.url)
+    evidence.setdefault("discovery_source_title", candidate.title)
+    return replace(row, evidence=evidence)
+
+
 def evaluate_candidates(
     candidates: list,
     *,
@@ -342,6 +388,25 @@ def evaluate_candidates(
                 snapshot.candidate, snapshot.evidence, snapshot.signals
             )
 
+        if _listing_candidate(candidate, page):
+            from geography import parse_expected_place
+
+            place = None
+            if getattr(candidate, "expected_city", ""):
+                place = parse_expected_place(
+                    city=candidate.expected_city,
+                    state=getattr(candidate, "expected_state", "") or None,
+                    country=getattr(candidate, "expected_country", "") or None,
+                )
+            expanded = expand_from_page(
+                candidate,
+                page_evidence=page,
+                signals=signals,
+                expected=place,
+            )
+            if expanded:
+                rows = merge_in_memory_duplicates(expanded)
+
         attached_rows: list[BusinessCandidate] = []
         applied_rows: list[BusinessCandidate] = []
         page_for_llm = (
@@ -351,6 +416,7 @@ def evaluate_candidates(
             enriched.combined_signals() if enriched is not None and enriched.pages else signals
         )
         for row in rows:
+            row = _stamp_search_context(row, candidate)
             attached, result = maybe_classify_with_local_llm(
                 client,
                 candidate=candidate,
@@ -387,6 +453,11 @@ def evaluate_candidates(
                 ),
             }
             attached = replace(attached, evidence=inspect_evidence)
+            if os.environ.get("STOCKIST_EXPLAIN") == "1":
+                explanation = (attached.evidence or {}).get("explanation")
+                if explanation:
+                    print(explanation, flush=True)
+                    print("", flush=True)
             if result.attempted:
                 qwen_calls += 1
                 qwen_seconds += result.elapsed_seconds

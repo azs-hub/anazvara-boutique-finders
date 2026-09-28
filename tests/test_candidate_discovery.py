@@ -207,19 +207,41 @@ class DuplicateWebsiteTests(unittest.TestCase):
         self.assertEqual(types.count(ResultType.DIRECTORY), 2)
         self.assertEqual(types.count(ResultType.WEBSITE), 1)
 
-    def test_expand_from_page_is_reserved(self) -> None:
+    def test_expand_from_page_extracts_named_businesses(self) -> None:
+        from content_extraction import ExtractedLink, PageEvidence
+
         candidate = Candidate(
-            title="LBB",
+            title="Best boutiques in Mumbai",
             url="https://lbb.in/mumbai/boutiques",
             normalized_url="https://lbb.in/mumbai/boutiques",
             domain="lbb.in",
             snippet="",
             result_type=ResultType.DIRECTORY,
-            search_query="test",
+            search_query="best boutiques Mumbai",
             search_source="google",
         )
-        with self.assertRaises(NotImplementedError):
-            expand_from_page(candidate)
+        page = PageEvidence(
+            source_url=candidate.normalized_url,
+            final_url=candidate.normalized_url,
+            domain="lbb.in",
+            title="Best boutiques in Mumbai",
+            meta_description=None,
+            text="A directory of shops.",
+            headings=[],
+            links=[
+                ExtractedLink(
+                    url="https://shop-a.example/",
+                    normalized_url="https://shop-a.example/",
+                    anchor_text="Atelier North",
+                    useful=True,
+                    external=True,
+                )
+            ],
+        )
+        rows = expand_from_page(candidate, page_evidence=page)
+        self.assertEqual([row.business_name for row in rows], ["Atelier North"])
+        self.assertEqual(rows[0].evidence["discovered_from"], "directory")
+        self.assertEqual(rows[0].evidence["discovery_source_url"], candidate.normalized_url)
 
 
 if __name__ == "__main__":
