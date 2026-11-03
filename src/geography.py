@@ -62,6 +62,9 @@ _PLACES: dict[str, dict[str, object]] = {
             "fontainhas",
             "saligao",
             "palolem",
+            "benaulim",
+            "colva",
+            "canacona",
         ),
     },
     "mumbai": {

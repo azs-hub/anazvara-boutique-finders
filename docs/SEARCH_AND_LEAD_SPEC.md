@@ -115,18 +115,64 @@ not rotate neighbourhoods. The new batch is larger because the vocabulary and
 the locality list are both wider, and it is still far below a full
 family × locality product.
 
+## Iterative research
+
+`src/research_loop.py` runs one bounded SearXNG job per place. Round 1 is the
+existing production query batch, sliced so it stays inside the job budget. It
+is not replaced by a new keyword list.
+
+1. **Round 1, initial discovery.** Diverse retail, positioning, and discovery-language
+   queries, including some locality rotation from the current generator.
+2. **Round 2, candidate enrichment.** A few SearXNG queries per promising
+   candidate, only for fields that are still missing (address, Instagram,
+   website, store evidence, brands). Known fields are not searched again.
+3. **Round 3, discovery expansion.** Neighbourhoods that have not appeared in
+   the pool get one locality query each. A short editorial list (guides,
+   where to shop, boutiques to visit) runs in the same round.
+4. **Round 4, selective enrichment.** Businesses first found in round 3 use
+   the same enrichment planner. The job then stops.
+
+There is no recursive agent. Round 2 and round 4 share
+`CANDIDATE_ENRICHMENT_MAX_QUERIES`. The whole job stops at
+`TOTAL_RESEARCH_MAX_QUERIES` even when the three bucket limits would add up
+to more.
+
+| Budget | Default |
+|---|---|
+| `INITIAL_DISCOVERY_MAX_QUERIES` | 24 |
+| `CANDIDATE_ENRICHMENT_MAX_QUERIES` | 18 |
+| `EXPANSION_MAX_QUERIES` | 12 |
+| `TOTAL_RESEARCH_MAX_QUERIES` | 40 |
+| Queries per candidate | 2 |
+
+Research priority only decides who is enriched first. It is not the Anazvara
+lead score, and this loop does not call the score engine. Obvious wholesalers,
+manufacturers, online-only pages, and generic names stay in the pool but do
+not spend enrichment queries.
+
+Article and directory hits are passed to the existing `expand_from_page`
+extractor when the caller supplies that callback. The article URL stays on
+the business as a discovery source. Named shops from the page become
+candidates. The extractor itself is unchanged.
+
+A Google Maps phrase in an enrichment query is only SearXNG text. It does
+not call Google Maps.
+
 ## Discovery vs verification vs qualification
 
 The pipeline is:
 
-1. **Discovery** — SearXNG runs the generated queries and keeps the hits,
-   including articles and directories.
-2. **Broad collection** — hits become candidates. Missing the words boutique,
-   store, fashion, designer, or multi-brand is not a reason to drop a hit.
-3. **Deduplication** — same business found by several queries collapses.
+1. **Discovery** — the research loop above. Hits are kept even when they do
+   not contain boutique, store, fashion, designer, or multi-brand.
+2. **Broad collection** — search hits and shops named on editorial pages
+   become candidates.
+3. **Deduplication** — the same business found in a later round collapses
+   into the earlier record. Every source URL and query is kept.
 4. **Physical-store verification** — page evidence is scored for a real premises
    and for the expected place.
 5. **Qwen qualification** — optional, later, and only where it already runs.
+   The research loop collects evidence for that step. It does not ask Qwen
+   to discover businesses.
 6. **Deterministic scoring** — existing stockist-fit rules choose lead, review,
    or exclude.
 
@@ -203,4 +249,5 @@ search logic:
 
 Benchmark-only searches that name one of these businesses, including any
 Villa Mor fallback in a Goa benchmark harness, stay outside
-`src/search_queries.py`.
+`src/search_queries.py` and `src/research_loop.py`. The research loop may
+search a name only after that name has already been discovered.
