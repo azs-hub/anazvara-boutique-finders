@@ -1,0 +1,314 @@
+{
+  "places": [
+    {
+      "key": "india",
+      "name": "India",
+      "type": "country",
+      "country": "India",
+      "bbox": [
+        6.5,
+        68.0,
+        35.7,
+        97.5
+      ],
+      "aliases": [],
+      "neighbourhoods": [],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "goa",
+      "name": "Goa",
+      "type": "region",
+      "country": "India",
+      "bbox": [
+        14.89,
+        73.67,
+        15.8,
+        74.34
+      ],
+      "aliases": [
+        "North Goa",
+        "South Goa"
+      ],
+      "neighbourhoods": [
+        "Panaji",
+        "Panjim",
+        "Anjuna",
+        "Assagao",
+        "Vagator",
+        "Morjim",
+        "Mapusa",
+        "Margao",
+        "Madgaon",
+        "Candolim",
+        "Calangute",
+        "Parra",
+        "Aldona",
+        "Arossim",
+        "Cansaulim",
+        "Bardez",
+        "Siolim",
+        "Arpora",
+        "Baga",
+        "Fontainhas",
+        "Saligao",
+        "Palolem",
+        "Benaulim",
+        "Colva",
+        "Canacona"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "mumbai",
+      "name": "Mumbai",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        18.89,
+        72.77,
+        19.27,
+        72.99
+      ],
+      "aliases": [
+        "Bombay"
+      ],
+      "neighbourhoods": [
+        "Bandra",
+        "Khar",
+        "Colaba",
+        "Juhu",
+        "Worli",
+        "Lower Parel",
+        "Kemp's Corner",
+        "Andheri",
+        "Powai",
+        "BKC",
+        "Santacruz",
+        "Versova",
+        "Marine Drive"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "delhi",
+      "name": "Delhi",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        28.4,
+        76.84,
+        28.88,
+        77.35
+      ],
+      "aliases": [
+        "New Delhi"
+      ],
+      "neighbourhoods": [
+        "Hauz Khas",
+        "Meherchand Market",
+        "Shahpur Jat",
+        "Khan Market",
+        "Connaught Place",
+        "Defence Colony",
+        "Greater Kailash",
+        "GK 1",
+        "GK 2",
+        "Lodhi",
+        "Mehrauli",
+        "Vasant Vihar",
+        "Saket",
+        "Chanakyapuri"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "bengaluru",
+      "name": "Bengaluru",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        12.83,
+        77.46,
+        13.14,
+        77.78
+      ],
+      "aliases": [
+        "Bangalore"
+      ],
+      "neighbourhoods": [
+        "Indiranagar",
+        "Koramangala",
+        "UB City",
+        "Lavelle Road",
+        "Jayanagar",
+        "Whitefield",
+        "MG Road",
+        "Commercial Street",
+        "Sadashivanagar"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "jaipur",
+      "name": "Jaipur",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        26.77,
+        75.65,
+        27.03,
+        75.95
+      ],
+      "aliases": [],
+      "neighbourhoods": [
+        "C-Scheme",
+        "Malviya Nagar",
+        "Vaishali Nagar",
+        "Raja Park",
+        "Bani Park",
+        "Pink City",
+        "MI Road"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "hyderabad",
+      "name": "Hyderabad",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        17.2,
+        78.25,
+        17.6,
+        78.65
+      ],
+      "aliases": [],
+      "neighbourhoods": [
+        "Banjara Hills",
+        "Jubilee Hills",
+        "Gachibowli",
+        "Hitech City"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "pune",
+      "name": "Pune",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        18.41,
+        73.74,
+        18.63,
+        73.98
+      ],
+      "aliases": [],
+      "neighbourhoods": [
+        "Koregaon Park",
+        "Kalyani Nagar",
+        "FC Road"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "chennai",
+      "name": "Chennai",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        12.9,
+        80.12,
+        13.23,
+        80.33
+      ],
+      "aliases": [
+        "Madras"
+      ],
+      "neighbourhoods": [
+        "Alwarpet",
+        "Nungambakkam",
+        "Besant Nagar",
+        "Adyar"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "kolkata",
+      "name": "Kolkata",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        22.45,
+        88.25,
+        22.65,
+        88.45
+      ],
+      "aliases": [
+        "Calcutta"
+      ],
+      "neighbourhoods": [
+        "Park Street",
+        "Hindustan Park",
+        "Ballygunge",
+        "Camac Street"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    },
+    {
+      "key": "ahmedabad",
+      "name": "Ahmedabad",
+      "type": "city",
+      "country": "India",
+      "bbox": [
+        22.93,
+        72.47,
+        23.12,
+        72.7
+      ],
+      "aliases": [
+        "Amdavad"
+      ],
+      "neighbourhoods": [
+        "CG Road",
+        "Navrangpura",
+        "Satellite",
+        "Vastrapur"
+      ],
+      "languages": [
+        "en"
+      ],
+      "currency": "INR"
+    }
+  ]
+}

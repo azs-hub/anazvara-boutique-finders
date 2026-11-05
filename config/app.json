@@ -1,0 +1,71 @@
+{
+  "providers": {
+    "osm": {
+      "enabled": true,
+      "requiredEnv": null,
+      "costPerCallUsd": 0,
+      "dailyLimit": 90,
+      "monthlyLimit": 2700
+    },
+    "searxng": {
+      "enabled": true,
+      "requiredEnv": "SEARXNG_URL",
+      "costPerCallUsd": 0,
+      "dailyLimit": 1000,
+      "monthlyLimit": 30000
+    },
+    "places": {
+      "enabled": false,
+      "requiredEnv": "GOOGLE_PLACES_API_KEY",
+      "costPerCallUsd": 0.032,
+      "dailyLimit": 300,
+      "monthlyLimit": 4900
+    },
+    "exa": {
+      "enabled": false,
+      "requiredEnv": "EXA_API_KEY",
+      "costPerCallUsd": 0.007,
+      "dailyLimit": 100,
+      "monthlyLimit": 1350
+    },
+    "tavily": {
+      "enabled": false,
+      "requiredEnv": "TAVILY_API_KEY",
+      "costPerCallUsd": 0.008,
+      "dailyLimit": 100,
+      "monthlyLimit": 950
+    }
+  },
+  "fetch": {
+    "userAgent": "AnazvaraStockistFinder/0.1",
+    "respectRobots": true,
+    "minDelayPerHostMs": 1000,
+    "timeoutMs": 15000,
+    "maxBytes": 1048576,
+    "maxPagesPerSite": 4
+  },
+  "llm": {
+    "provider": "ollama",
+    "temperature": 0,
+    "maxRetries": 1,
+    "maxInputTokens": 3000,
+    "timeoutMs": 90000
+  },
+  "scoring": {
+    "weights": {
+      "women": 20,
+      "multiBrand": 20,
+      "independent": 10,
+      "aesthetic": 20,
+      "price": 15,
+      "craftNaturalSustainable": 10,
+      "contact": 5
+    },
+    "signalCredit": { "yes": 1, "unknown": 0.5, "no": 0 },
+    "thresholds": {
+      "priority": { "top": 75, "high": 60, "medium": 40, "mediumStoreUnknown": 70 },
+      "fit": { "high": 70, "medium": 45 },
+      "priceMatchTolerance": 0.5
+    }
+  }
+}

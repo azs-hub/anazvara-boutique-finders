@@ -171,7 +171,7 @@ Each phase is reviewed and committed before the next one starts.
 ### Phase 1 — Skeleton & storage (in progress)
 - [x] Tooling: pnpm, TS strict, ESLint, Vitest (`942ce6d`).
 - [x] Database: Drizzle schema + migrations for the tables above (`2d2591d`).
-- [ ] Config (`zod`): `config/app.json` (providers, budgets, thresholds) and `config/places.json` (Indian cities with bbox and neighbourhoods, ported from `geography.py`).
+- [x] Config (`zod`, `src/config/`): `config/app.json` (providers, budgets, thresholds), `config/places.json` (India, Goa as a region, and 9 cities ported from `geography.py`), `config/markets.json` (India) and `config/anazvara-profile.json` (placeholders).
 - [ ] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard.
 - [ ] CLI skeleton: `pnpm cli <command>`, with `find` taking `--location`. `src/cli.ts` has no commands yet.
 - [ ] Wrap-up: review Phase 1 against this plan.
@@ -179,7 +179,6 @@ Each phase is reviewed and committed before the next one starts.
 ### Phase 1.5 — Workspace & schema (next, only after Phase 1)
 - [ ] Move to a pnpm workspace: `apps/scraper`, `packages/database`, `packages/shared`, `packages/scoring` (`apps/web` comes in Phase 7).
 - [ ] Add the evidence, overrides and jobs tables and the `businesses` fields from section 3.
-- [ ] Extend `config/places.json` with regions, countries and European places; add `config/markets.json` and `config/anazvara-profile.json`.
 
 ### Phase 2 — High-yield sources first
 - [ ] **Overpass provider**: clothes/boutique/fashion shops in the location's bbox → sightings.

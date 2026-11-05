@@ -1,0 +1,120 @@
+{
+  "markets": [
+    {
+      "key": "india",
+      "name": "India",
+      "countries": [
+        "India"
+      ],
+      "currency": "INR",
+      "signals": [
+        "women_fashion",
+        "multi_brand",
+        "designer_labels",
+        "independent_labels",
+        "slow_fashion",
+        "indian_craft",
+        "natural_fabrics",
+        "linen",
+        "block_print",
+        "handmade",
+        "price_match",
+        "aesthetic_match"
+      ],
+      "queryVocabulary": {
+        "en": {
+          "retail_identity": {
+            "sampled": false,
+            "terms": [
+              "multi brand fashion store",
+              "multi brand boutique",
+              "multi designer fashion store",
+              "multi designer boutique",
+              "independent fashion boutique",
+              "independent clothing store",
+              "curated fashion store",
+              "curated clothing store",
+              "designer boutique",
+              "designer fashion store",
+              "concept store fashion",
+              "fashion concept store",
+              "designer collective",
+              "fashion collective",
+              "independent designer store",
+              "lifestyle store fashion",
+              "resort wear boutique",
+              "fashion showroom"
+            ]
+          },
+          "positioning": {
+            "sampled": false,
+            "terms": [
+              "Indian designers fashion store",
+              "emerging Indian designers store",
+              "independent Indian labels store",
+              "curated Indian fashion store",
+              "slow fashion store",
+              "sustainable fashion boutique",
+              "conscious fashion store",
+              "artisan fashion store",
+              "handcrafted fashion store",
+              "handloom clothing store",
+              "linen clothing store",
+              "natural fabric fashion store",
+              "block print clothing store",
+              "resort wear fashion store",
+              "independent womenswear store",
+              "contemporary Indian womenswear store"
+            ]
+          },
+          "discovery_language": {
+            "sampled": false,
+            "terms": [
+              "where to shop independent Indian designers",
+              "where to shop Indian designer clothing",
+              "best independent fashion stores",
+              "best multi brand fashion stores",
+              "best multi designer stores",
+              "best curated fashion stores",
+              "best concept stores fashion",
+              "fashion shopping independent designers",
+              "indie fashion stores",
+              "independent clothing shops",
+              "unique clothing stores",
+              "curated clothing shops",
+              "designer shops",
+              "fashion destinations",
+              "village shops fashion"
+            ]
+          },
+          "physical_retail": {
+            "sampled": true,
+            "terms": [
+              "\"visit us\" fashion store",
+              "\"our store\" fashion",
+              "\"store location\" fashion",
+              "\"find us\" boutique",
+              "\"opening hours\" fashion store",
+              "\"physical store\" fashion",
+              "\"shop address\" fashion",
+              "\"retail store\" fashion",
+              "\"showroom\" fashion boutique"
+            ]
+          },
+          "editorial": {
+            "sampled": true,
+            "terms": [
+              "fashion boutiques to visit",
+              "independent fashion stores guide",
+              "designer stores guide",
+              "where to shop fashion",
+              "indie boutique guide",
+              "fashion shopping guide",
+              "best shops for Indian designers"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
