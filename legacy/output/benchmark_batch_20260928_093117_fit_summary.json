@@ -1,0 +1,300 @@
+{
+  "by_city": [
+    {
+      "city": "Goa",
+      "queries": 4,
+      "raw_search_results": 80,
+      "business_candidates": 6,
+      "article_directory_pages": 1,
+      "businesses_extracted_from_articles": 0,
+      "physical_stores_verified": 1,
+      "fashion_relevant_businesses": 1,
+      "multi_brand_curated_businesses": 0,
+      "LEAD": 0,
+      "REVIEW": 3,
+      "EXCLUDED": 3
+    },
+    {
+      "city": "Mumbai",
+      "queries": 4,
+      "raw_search_results": 80,
+      "business_candidates": 5,
+      "article_directory_pages": 2,
+      "businesses_extracted_from_articles": 1,
+      "physical_stores_verified": 1,
+      "fashion_relevant_businesses": 1,
+      "multi_brand_curated_businesses": 0,
+      "LEAD": 0,
+      "REVIEW": 0,
+      "EXCLUDED": 5
+    },
+    {
+      "city": "Delhi",
+      "queries": 4,
+      "raw_search_results": 80,
+      "business_candidates": 7,
+      "article_directory_pages": 1,
+      "businesses_extracted_from_articles": 5,
+      "physical_stores_verified": 0,
+      "fashion_relevant_businesses": 5,
+      "multi_brand_curated_businesses": 0,
+      "LEAD": 0,
+      "REVIEW": 6,
+      "EXCLUDED": 1
+    },
+    {
+      "city": "Bengaluru",
+      "queries": 4,
+      "raw_search_results": 80,
+      "business_candidates": 18,
+      "article_directory_pages": 2,
+      "businesses_extracted_from_articles": 13,
+      "physical_stores_verified": 11,
+      "fashion_relevant_businesses": 7,
+      "multi_brand_curated_businesses": 0,
+      "LEAD": 0,
+      "REVIEW": 16,
+      "EXCLUDED": 2
+    },
+    {
+      "city": "Jaipur",
+      "queries": 4,
+      "raw_search_results": 80,
+      "business_candidates": 39,
+      "article_directory_pages": 3,
+      "businesses_extracted_from_articles": 35,
+      "physical_stores_verified": 2,
+      "fashion_relevant_businesses": 1,
+      "multi_brand_curated_businesses": 0,
+      "LEAD": 0,
+      "REVIEW": 39,
+      "EXCLUDED": 0
+    }
+  ],
+  "top_businesses": [
+    {
+      "business_name": "BunaStudio",
+      "city": "Delhi",
+      "website": "https://bunastudio.com?srsltid=AU7gw4UKqk8UH4XIc4Ult35r9GbWAz6NjItj0opa7upusXvwA8o9qyC3",
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Tawnydove",
+      "city": "Bengaluru",
+      "website": "https://tawnydove.in/pages/our-offline-store",
+      "physical_store_evidence": [
+        "explicit physical address",
+        "dedicated store page",
+        "phone number"
+      ],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Amritsari Boutique",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Madhu Boutique",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Shehnaai",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Naav Organics",
+      "city": "Jaipur",
+      "website": "https://naavorganics.com",
+      "physical_store_evidence": [
+        "explicit physical address",
+        "phone number"
+      ],
+      "retail_model": "unknown",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Siesta o'Clock",
+      "city": "Goa",
+      "website": "https://siestaoclock.com/pages/about-us?srsltid=AU7gw4XOr-JxLge4o9oyuq6JqhQX40j544H5qa9N3Pkv0D48m4QqbJZl",
+      "physical_store_evidence": [
+        "explicit physical address",
+        "phone number",
+        "structured physical store"
+      ],
+      "retail_model": "curated store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "House Of Jamoti",
+      "city": "Jaipur",
+      "website": "https://houseofjamoti.com/pages/store?srsltid=AU7gw4XJipw2TEDIcr0pKZG5vIA9gJuQSYRcvBiPsJ6TnpmH3ds8leiP",
+      "physical_store_evidence": [
+        "explicit physical address",
+        "dedicated store page",
+        "visit us"
+      ],
+      "retail_model": "curated store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Vie",
+      "city": "Bengaluru",
+      "website": "https://viepret.com/pages/visit-us",
+      "physical_store_evidence": [
+        "explicit physical address",
+        "visit us",
+        "phone number"
+      ],
+      "retail_model": "unknown",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Studio Manjusha",
+      "city": "Bengaluru",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Polka Bangalore",
+      "city": "Bengaluru",
+      "website": "https://polkabangalore.com/pages/polka-in-store",
+      "physical_store_evidence": [
+        "explicit physical address",
+        "dedicated store page",
+        "visit us",
+        "phone number"
+      ],
+      "retail_model": "unknown",
+      "anazvara_fit": "LOW",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Amrapali Museum",
+      "city": "Jaipur",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Andraab",
+      "city": "Jaipur",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Anokhi",
+      "city": "Jaipur",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Birdhichand Ghanshyamdas",
+      "city": "Jaipur",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Book Appointment",
+      "city": "Delhi",
+      "website": "https://in.kalkifashion.com/pages/appointments",
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Cottons",
+      "city": "Jaipur",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Designer Boutique, Bangalore",
+      "city": "Bengaluru",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "designer boutique",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Diane Singh",
+      "city": "Jaipur",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Echo of Pink \u00b7 Jaipur, Rajasthan - Instagram",
+      "city": "Jaipur",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "unknown",
+      "anazvara_fit": "UNKNOWN",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    }
+  ]
+}

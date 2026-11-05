@@ -1,0 +1,297 @@
+{
+  "by_city": [
+    {
+      "city": "Goa",
+      "queries": 4,
+      "raw_search_results": 134,
+      "business_candidates": 74,
+      "article_directory_pages": 3,
+      "businesses_extracted_from_articles": 71,
+      "physical_stores_verified": 5,
+      "fashion_relevant_businesses": 22,
+      "multi_brand_curated_businesses": 22,
+      "LEAD": 0,
+      "REVIEW": 67,
+      "EXCLUDED": 7
+    },
+    {
+      "city": "Mumbai",
+      "queries": 4,
+      "raw_search_results": 123,
+      "business_candidates": 17,
+      "article_directory_pages": 3,
+      "businesses_extracted_from_articles": 13,
+      "physical_stores_verified": 1,
+      "fashion_relevant_businesses": 14,
+      "multi_brand_curated_businesses": 0,
+      "LEAD": 0,
+      "REVIEW": 1,
+      "EXCLUDED": 16
+    },
+    {
+      "city": "Delhi",
+      "queries": 4,
+      "raw_search_results": 96,
+      "business_candidates": 36,
+      "article_directory_pages": 2,
+      "businesses_extracted_from_articles": 35,
+      "physical_stores_verified": 5,
+      "fashion_relevant_businesses": 16,
+      "multi_brand_curated_businesses": 5,
+      "LEAD": 0,
+      "REVIEW": 36,
+      "EXCLUDED": 0
+    },
+    {
+      "city": "Bengaluru",
+      "queries": 4,
+      "raw_search_results": 80,
+      "business_candidates": 79,
+      "article_directory_pages": 1,
+      "businesses_extracted_from_articles": 75,
+      "physical_stores_verified": 14,
+      "fashion_relevant_businesses": 15,
+      "multi_brand_curated_businesses": 0,
+      "LEAD": 0,
+      "REVIEW": 79,
+      "EXCLUDED": 0
+    },
+    {
+      "city": "Jaipur",
+      "queries": 4,
+      "raw_search_results": 80,
+      "business_candidates": 47,
+      "article_directory_pages": 3,
+      "businesses_extracted_from_articles": 43,
+      "physical_stores_verified": 3,
+      "fashion_relevant_businesses": 2,
+      "multi_brand_curated_businesses": 1,
+      "LEAD": 0,
+      "REVIEW": 46,
+      "EXCLUDED": 1
+    }
+  ],
+  "top_businesses": [
+    {
+      "business_name": "Tawnydove",
+      "city": "Bengaluru",
+      "website": "https://tawnydove.in/pages/our-offline-store",
+      "physical_store_evidence": [
+        "explicit physical address",
+        "dedicated store page",
+        "phone number"
+      ],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Amritsari Boutique",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Four",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "From",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "House",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Kart",
+      "city": "Bengaluru",
+      "website": null,
+      "physical_store_evidence": [
+        "explicit physical address",
+        "visit us"
+      ],
+      "retail_model": "unknown",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Strong physical fashion retailer and strong brand fit, but multi-brand status could not be conclusively verified."
+    },
+    {
+      "business_name": "Located",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Madhu Boutique",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Shehnaai",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Started",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "The",
+      "city": "Delhi",
+      "website": null,
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "VISIT SITE",
+      "city": "Delhi",
+      "website": "https://vasaas.com",
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "VISIT SITE",
+      "city": "Delhi",
+      "website": "https://pankhni.com",
+      "physical_store_evidence": [],
+      "retail_model": "curated store",
+      "anazvara_fit": "HIGH",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Are",
+      "city": "Goa",
+      "website": null,
+      "physical_store_evidence": [
+        "visit us"
+      ],
+      "retail_model": "concept store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "DADAblui",
+      "city": "Goa",
+      "website": null,
+      "physical_store_evidence": [
+        "visit us"
+      ],
+      "retail_model": "concept store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Jon\u2019s home store",
+      "city": "Goa",
+      "website": null,
+      "physical_store_evidence": [
+        "visit us"
+      ],
+      "retail_model": "concept store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Kassa",
+      "city": "Goa",
+      "website": null,
+      "physical_store_evidence": [
+        "visit us"
+      ],
+      "retail_model": "concept store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Located",
+      "city": "Goa",
+      "website": null,
+      "physical_store_evidence": [
+        "visit us"
+      ],
+      "retail_model": "concept store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Looking",
+      "city": "Goa",
+      "website": null,
+      "physical_store_evidence": [
+        "visit us"
+      ],
+      "retail_model": "concept store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    },
+    {
+      "business_name": "Mermaid\u2019s Boutique",
+      "city": "Goa",
+      "website": null,
+      "physical_store_evidence": [
+        "visit us"
+      ],
+      "retail_model": "concept store",
+      "anazvara_fit": "MEDIUM",
+      "status": "REVIEW",
+      "reason": "Named business with incomplete evidence. Worth a manual look before outreach."
+    }
+  ]
+}
