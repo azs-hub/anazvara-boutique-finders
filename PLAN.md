@@ -1,7 +1,7 @@
 # Anazvara Stockist Finder — Status Review & Rebuild Plan (JS)
 
-_Review date: 3 Nov 2026 · Reviewed: `azs-hub/anazvara-boutique-finders` @ `fa7b621`_
-_Note: the two Notion spec pages could not be read (Notion renders client-side). This plan uses `README.md`, `AUDIT_PLAN.md`, `docs/SEARCH_AND_LEAD_SPEC.md` and the code. Paste the Notion text into `docs/` if it contains requirements not covered here._
+_Synced with spec v1.1 on 5 Nov 2026. The Notion specs linked in `CLAUDE.md` are the product source of truth; this file holds the phase plan and repo status._
+_Sections 1–2 are the 3 Nov 2026 review of the Python version (`azs-hub/anazvara-boutique-finders` @ `fa7b621`)._
 
 ---
 
@@ -46,7 +46,7 @@ These are on your own reference list in `SEARCH_AND_LEAD_SPEC.md`. The pipeline 
 ## 3. Target design
 
 ### Principle
-**Collect businesses from many cheap sources → merge into one record per shop → enrich → let one LLM call qualify → simple score → human review.** Don't use rules to reject anything early. Deduplication and the qualify step do the filtering.
+**Collect businesses from many cheap sources → merge into one record per shop → enrich → verify the physical store → let one LLM call fill the signals → transparent rules score → human review.** Don't use rules to reject anything early.
 
 ```
             ┌─ OSM Overpass (free, structured shops)
@@ -55,25 +55,32 @@ These are on your own reference list in `SEARCH_AND_LEAD_SPEC.md`. The pipeline 
             ├─ Exa / Tavily (free tiers, semantic)
             └─ Guide expansion (LLM extracts shop names from articles)
                          │
- RESOLVE   name+locality → website / IG / maps / phone   (merge on dedupe keys)
+ RESOLVE   sightings → one business (merge on dedupe keys)
                          │
- ENRICH    homepage + contact/about/stores pages, JSON-LD, socials
+ ENRICH    light pass for all (homepage + contact/about/stores); full pass once physical store = YES
                          │
- QUALIFY   1 Ollama call, JSON-schema output (zod)       ← replaces the rule engine
+ VERIFY    Maps + website evidence → physical_store + confidence (only NO excludes automatically)
                          │
- SCORE     deterministic weights → LEAD / REVIEW / REJECT
+ QUALIFY   1 Ollama call: each signal YES/NO/UNKNOWN + quote + source URL
                          │
- EXPORT    CSV / Google Sheet + "new since last run"
+ SCORE     config rules → score, fit, priority, system_decision (lead/review/excluded)
+                         │
+ EXPORT    CRM-ready CSV + "new since last run"
 ```
 
 Every stage reads from and writes to SQLite, so runs can resume and only do new work.
+
+### Markets and dynamic location
+- The search covers India and other markets (Europe). `--location` takes a city, region or country, resolved from `config/places.json`: name, aliases, type, country, bbox, neighbourhoods, languages, currency.
+- A country expands into regions and cities; a city expands into neighbourhoods. Queries use the market's language as well as English.
+- Signals, query language, currency and price band are configured per market (`config/markets.json`, `config/anazvara-profile.json`). Adding a market needs no code change.
 
 ### Sources & cost (verified Nov 2026)
 
 | Source | Use for | Free allowance | Expected Goa cost |
 |---|---|---|---|
 | **OSM Overpass** | `shop=clothes\|boutique\|fashion` in a bounding box: name, address, sometimes website/phone | Free, no key | $0 |
-| **Google Places API (New) Text Search** | Best single source for physical boutiques: address, phone, website, rating | 5,000 Pro calls/mo per SKU since Mar 2025 | $0 (≈150–300 calls per city). **Set a daily quota cap in Cloud Console** — budget alerts don't stop billing |
+| **Google Places API (New) Text Search** | Best single source for physical boutiques | 5,000 Pro calls/mo per SKU since Mar 2025 | $0 (≈150–300 calls per city). **Set a daily quota cap in Cloud Console** — budget alerts don't stop billing |
 | **SearXNG** | Broad recall, guides & articles | Self-hosted | $0 |
 | **Exa** | Semantic "find shops like X" & guide discovery | $20 signup + $10/mo credits; search ≈ $7/1k | $0 (~1,400 searches/mo) |
 | **Tavily** | Search + extract (clean page text) | 1,000 credits/mo, basic search = 1 credit | $0 |
@@ -88,17 +95,19 @@ Instagram: **don't scrape it** (ToS, blocks). Capture handles from websites, Map
 
 | Concern | Choice | Why |
 |---|---|---|
-| Runtime | Node 22 + TypeScript, `pnpm`, `tsx` | You know it; Cursor handles TS well |
-| CLI | `commander` | `pnpm cli find --city Goa --new 50` |
+| Runtime | Node 22 + TypeScript 6, pnpm 12 workspaces, `tsx` | You know it; Cursor handles TS well |
+| CLI | `commander` | `pnpm cli find --location Goa --new 50` |
 | DB | SQLite via `better-sqlite3` + **Drizzle ORM** | Zero-ops, typed, migrations |
 | HTTP/crawl | `undici` fetch + `cheerio`; **Crawlee** (`CheerioCrawler`) if you want queueing, retries, robots & rate limits built in | Playwright only as a fallback for JS-only sites |
 | Validation | `zod` | LLM output schemas + config |
 | LLM | `ollama` npm package with `format: <JSON schema>` (structured outputs) | Valid JSON, no regex parsing |
 | Search SDKs | `exa-js`, `@tavily/core`, plain fetch for SearXNG/Overpass/Places | |
 | Tests | `vitest` + recorded HTTP fixtures | |
-| Later UI | Small Vue 3 review screen over the same SQLite | Your core stack |
+| Later UI | Next.js / React CRM in `apps/web` over the same SQLite | Tech spec §1, §5.7 |
 
-### Data model (minimal)
+### Data model
+
+Built in Phase 1 (schema in `src/db/schema.ts`; database file defaults to `data/stockists.db`):
 
 ```
 runs            id, city, started_at, finished_at, params, stats_json
@@ -112,100 +121,116 @@ qualifications  id, business_id, model, json, created_at
 api_usage       provider, day, calls, cost_usd   (primary key: provider + day)
 ```
 
-The schema lives in `src/db/schema.ts`; the database file defaults to `data/stockists.db`.
-
 - **Save first, merge later:** sightings are saved with a null `business_id`, so a crash before merge doesn't lose results or repeat paid calls. Merge sets `business_id`.
-- **Allowed values:** `businesses.status` and `sightings.source` have CHECK constraints built from the same const arrays as the TypeScript types.
+- **Allowed values:** status and source columns have CHECK constraints built from the same const arrays as the TypeScript types.
 - **Indexes:**
   - `businesses`: unique on `maps_place_id`; plain on `website_domain`, `instagram`, `phone`, and `city` + `status`.
   - `sightings`: `business_id`, plus a partial index for unmerged rows (`WHERE business_id IS NULL`).
   - `pages`: unique on `business_id` + `url`.
   - `qualifications`: `business_id`.
-- **No cascading deletes:** foreign keys block deletes, so a merge must move sightings, pages and qualifications to the surviving business before deleting the other one.
+- **No cascading deletes:** foreign keys block deletes, so a merge must move sightings, pages, qualifications and (from 1.5) evidence and notes to the surviving business before deleting the other one.
+
+Planned for Phase 1.5:
+
+```
+evidence        business_id, field, value, source, source_url, quote, confidence, created_at
+overrides       business_id, field, value, edited_by_user_at   (locked against later runs)
+jobs            type, location, params, status(queued|running|done|failed|cancelled), progress, error
+businesses      + physical_store (yes|no|unknown), physical_store_confidence (high|medium|low),
+                + system_decision (lead|review|excluded), set by the scraper, recalculated each run
+                + crm_status (to_prospect|contacted|followed_up|qualified|in_discussion|offer_sent|
+                  to_recontact|lost|invalid), set only by the user
+                + last_contacted, next_follow_up
+                + google_place_id, google_maps_url (replaces maps_place_id)
+                - status (replaced by system_decision + crm_status)
+runs            city → location
+```
+
+- **Google Maps storage (main spec §7.1):** only `google_place_id` and `google_maps_url` are stored permanently, plus the verification result as evidence. Lat/lng may be cached for 30 days at most. Other details are fetched live; address and phone in the CRM come from the shop's website or the user.
+- **Not in the schema yet, though tech spec §5.4 lists them as built:** a content hash on `pages`, and input hash + prompt version + per-signal rows on `qualifications`.
 
 Dedupe = Places `place_id` → website domain → IG handle → normalized phone → normalized name + locality (fuzzy, e.g. `fastest-levenshtein`).
 
-### Qualification schema (one LLM call per business)
+### Qualification and scoring (main spec §8, §12–17)
 
-```ts
-z.object({
-  is_real_business: z.boolean(),
-  sells_fashion: z.boolean(),
-  physical_store: z.enum(["yes","no","unknown"]),
-  multi_brand: z.enum(["yes","no","unknown"]),          // stocks other labels/designers
-  womenswear: z.enum(["yes","no","unknown"]),
-  aesthetic_fit: z.number().int().min(0).max(5),       // contemporary Indian, resort, linen, handloom, slow fashion
-  city: z.string().nullable(), locality: z.string().nullable(),
-  evidence: z.array(z.string()).max(5),                // short quotes from the input
-  reason: z.string()
-})
-```
+- One LLM call per business fills the market's signals: YES / NO / UNKNOWN, a quote and a source URL. A signal without a quote counts as UNKNOWN.
+- The score (0–100) comes from config weights. YES counts in full, UNKNOWN half, NO zero, and each score stores its breakdown.
+- Physical store is a gate on priority, not points. "Not found on Maps" means UNKNOWN, never NO.
+- Priority: TOP / HIGH / MEDIUM / LOW / EXCLUDE. Anazvara Fit is a band derived from the score.
 
-Score = weights over these fields plus contactability (phone/email/IG present) and source agreement (seen in ≥2 sources). Thresholds live in config, not in code.
+## 4. Phased plan (each item ≈ one session)
 
-## 4. Phased plan (each item ≈ one Cursor session)
+Each phase is reviewed and committed before the next one starts.
 
-### Phase 0 — Freeze & define "good" (½ day)
-- [ ] Tag the Python repo `python-v0`. Move it to `/legacy` (or leave the branch). Don't port it line by line.
-- [ ] Create `eval/golden.json`: the 25 reference shops + ~25 known "bad" examples (online-only brands, marketplaces, magazines), each with city and expected outcome.
-- [ ] Define success for Goa: **≥ 80% of golden shops found and scored LEAD/REVIEW**, and **≥ 60% precision on the top 50 leads** (manual check).
+### Phase 0 — Freeze & define "good" (partly done)
+- [x] Move the Python version to `legacy/`.
+- [ ] Tag the Python repo `python-v0` (no tag exists yet).
+- [ ] Create `eval/golden.json`: reference stockists and "looks close but no" examples per market, each with location and expected outcome.
+- [x] Define targets per market (main spec §33): **≥ 80% of reference stockists found and ending TOP or HIGH**, **≥ 60% of the top 50 confirmed by manual review**, and **no reference "no" example ending TOP**.
 
-### Phase 1 — Skeleton & storage (1–2 days)
-- [ ] `pnpm init`, TS strict, eslint, vitest, `src/` layout below.
-- [ ] Drizzle schema + migrations for the tables above.
-- [ ] Config (`zod`): cities → bounding box, localities (port `geography.py` Goa/Mumbai/Delhi/Bengaluru to JSON), provider keys, budgets, thresholds.
+### Phase 1 — Skeleton & storage (in progress)
+- [x] Tooling: pnpm, TS strict, ESLint, Vitest (`942ce6d`).
+- [x] Database: Drizzle schema + migrations for the tables above (`2d2591d`).
+- [ ] Config (`zod`): `config/app.json` (providers, budgets, thresholds) and `config/places.json` (Indian cities with bbox and neighbourhoods, ported from `geography.py`).
 - [ ] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard.
+- [ ] CLI skeleton: `pnpm cli <command>`, with `find` taking `--location`. `src/cli.ts` has no commands yet.
+- [ ] Wrap-up: review Phase 1 against this plan.
 
-### Phase 2 — High-yield sources first (2 days)
-- [ ] **Overpass provider**: clothes/boutique/fashion shops in the city bbox → sightings.
-- [ ] **Google Places provider**: Text Search per locality × 3–4 phrasings ("boutique", "designer store", "concept store", "clothing store"), field mask limited to what you need. Hard daily cap.
-- [ ] Merge/dedupe service → `businesses`.
-- [ ] Run Goa: **check golden-set recall now.** This alone will likely beat the current pipeline.
+### Phase 1.5 — Workspace & schema (next, only after Phase 1)
+- [ ] Move to a pnpm workspace: `apps/scraper`, `packages/database`, `packages/shared`, `packages/scoring` (`apps/web` comes in Phase 7).
+- [ ] Add the evidence, overrides and jobs tables and the `businesses` fields from section 3.
+- [ ] Extend `config/places.json` with regions, countries and European places; add `config/markets.json` and `config/anazvara-profile.json`.
 
-### Phase 3 — Web & semantic discovery (2 days)
-- [ ] SearXNG provider: set `language=en-IN`, choose engines explicitly, port the query families + locality rotation.
-- [ ] Exa provider (`type: "auto"`, `userLocation: "IN"`, category/company where useful) + Tavily provider (`country: "india"`).
+### Phase 2 — High-yield sources first
+- [ ] **Overpass provider**: clothes/boutique/fashion shops in the location's bbox → sightings.
+- [ ] **Google Places provider**: Text Search per neighbourhood × store-type wording, field mask limited to what you need. Hard daily cap. Applies the §7.1 storage rule.
+- [ ] Matching + merge/dedupe service → `businesses`.
+- [ ] Run Goa: **check golden-set recall now.**
+
+### Phase 3 — Web & semantic discovery
+- [ ] SearXNG provider: market language, explicit engines, query families + neighbourhood rotation.
+- [ ] Exa and Tavily providers, with location settings taken from the places catalog.
 - [ ] Result-type classifier (port `classification.py` logic): website / social / directory / article / marketplace / maps.
-- [ ] **Guide expansion**: for article/directory pages, fetch text (Tavily Extract or own fetch) → LLM extracts `[{name, locality, hints}]` → sightings with `source=guide`. *(This recovers the 236 lost shops.)*
+- [ ] **Guide expansion**: for article/directory pages, fetch text → LLM extracts `[{name, locality, hints}]` → sightings with `source=guide`. *(This recovers the 236 lost shops.)*
 
-### Phase 4 — Resolve & enrich (2 days)
-- [ ] Resolver: for businesses missing website/IG/address, query Places → Exa → SearXNG with `"<name>" <locality> Goa` and attach.
-- [ ] Enricher: fetch homepage + up to 3 same-site pages (contact/about/stores/stockists), extract JSON-LD, `og:site_name`, emails, phones, IG/FB/WhatsApp, address. Respect robots, 15 s timeout, 1 req/s per host, 1 MiB cap (keep your current discipline).
+### Phase 4 — Enrich & verify
+- [ ] Resolver: for businesses missing website/IG/address, query Places → Exa → SearXNG with `"<name>" <locality> <location>` and attach.
+- [ ] Light pass for every candidate: homepage + up to 3 same-site pages (contact/about/stores/stockists), JSON-LD, `og:site_name`, emails, phones, IG/FB/WhatsApp, address. Respect robots, 15 s timeout, 1 req/s per host, 1 MiB cap.
+- [ ] Physical-store verification: Maps + website evidence → `physical_store` + confidence, with evidence rows.
+- [ ] Full pass once `physical_store` = YES: brands, products, typical prices, contacts.
 - [ ] Shopify trick: `/pages/contact`, `/pages/about`, `/pages/stores`, and `/collections/vendors` or `/products.json` vendor field → **multi-brand evidence for free**.
 
-### Phase 5 — Qualify & score (1–2 days)
+### Phase 5 — Qualify & score
 - [ ] Ollama client with JSON-schema `format`, temperature 0, one retry on schema failure, prompt + schema versioned.
-- [ ] Input pack ≤ 3k tokens: Places data + JSON-LD + page excerpts + guide mentions.
-- [ ] Deterministic scorer + config thresholds → `lead | review | rejected`.
-- [ ] Cache by content hash, so reruns don't call the LLM again.
+- [ ] Input pack ≤ 3k tokens: Maps verification result + JSON-LD + page excerpts + guide mentions + Anazvara profile + market signals.
+- [ ] Rules in `packages/scoring` + config thresholds → score, fit, priority, `system_decision`.
+- [ ] Cache by input hash + model + prompt version, so reruns don't call the LLM again.
 
-### Phase 6 — The product command (1 day)
-- [ ] `pnpm cli find --city Goa --new 50`: runs stages until 50 *new* LEAD+REVIEW businesses exist that weren't in previous runs.
-- [ ] `pnpm cli export --city Goa` → CSV (and optionally a Google Sheet) with contact columns + `status` for outreach.
-- [ ] `pnpm cli eval` → golden-set recall + precision report.
+### Phase 6 — The product command
+- [ ] `pnpm cli find --location Goa --new 50`: runs stages until 50 *new* LEAD+REVIEW businesses exist that weren't in previous runs.
+- [ ] `pnpm cli export --location Goa` → CRM-ready CSV.
+- [ ] `pnpm cli eval` → recall + precision report per market.
+- [ ] Remaining commands from tech spec §5.2 as needed (`budget`, `config`, `places`, `db migrate`, `worker`).
 
-### Phase 7 — Iterate (ongoing)
-- [ ] Tune on eval only (never hard-code shop names into queries).
-- [ ] Add cities from the catalog.
-- [ ] Vue review UI: approve/reject, which feeds back as labelled data.
-- [ ] Outreach tracking (contacted / replied / stocking).
+### Phase 7 — Next.js CRM
+- [ ] `apps/web`: prospect list, detail with evidence, statuses, notes, dashboard, jobs (worker in `apps/scraper`).
 
-## 5. Proposed repo layout
+### Ongoing
+- Tune on eval only (never hard-code shop names into queries). Add places and markets through config.
+
+## 5. Repo layout
+
+Today: a single package (`src/`, `drizzle/`, `test/`). Target from Phase 1.5:
 
 ```
-src/
-  cli.ts                     # commander commands: find, export, eval, budget
-  config/                    # zod config, cities.json (bbox + localities)
-  db/schema.ts, db/client.ts
-  providers/                 # overpass.ts places.ts searxng.ts exa.ts tavily.ts + budget.ts
-  discover/queries.ts        # query families + locality rotation
-  discover/classifyUrl.ts
-  discover/guideExpand.ts
-  resolve/merge.ts, resolve/dedupeKeys.ts, resolve/resolver.ts
-  enrich/fetcher.ts, enrich/extract.ts, enrich/shopify.ts
-  qualify/schema.ts, qualify/prompt.ts, qualify/ollama.ts
-  score/score.ts
-  export/csv.ts
+apps/
+  scraper/src/               # cli.ts, providers/ (+ budget.ts), discover/, resolve/, enrich/, qualify/, export/
+  web/                       # Next.js CRM (Phase 7)
+packages/
+  database/                  # Drizzle schema, migrations, client
+  shared/                    # config schemas, types, places catalog loader
+  scoring/                   # score, fit, priority (pure functions)
+config/                      # app.json, places.json, markets.json, anazvara-profile.json
 eval/golden.json
 legacy/ (python, read-only)
 ```
@@ -213,12 +238,14 @@ legacy/ (python, read-only)
 ## 6. Risks & guardrails
 
 - **Google Places billing**: needs a billing account. Set per-API daily quotas (e.g. 300/day) on day one.
-- **Places ToS**: you may store `place_id` indefinitely; treat other Places content as cache. Fine for internal lead lists, but don't republish it.
+- **Places ToS**: see the storage rule in section 3. Check the current terms before production use.
+- **Personal data** (main spec §34): a contact person is personal data under DPDP and GDPR. Collect only publicly presented business contacts, record their source, and honour a do-not-contact flag.
 - **Local LLM speed**: ~5–15 s per qualification on a 9B model on a laptop. 300 shops ≈ 1 hour, so run it in the background and cache results.
-- **Overfitting to Goa**: keep the golden set multi-city once Mumbai is added.
+- **Overfitting to Goa**: keep the golden set multi-city and multi-market.
 
-## 7. Suggested first Cursor prompts
+## 7. Open decisions
 
-1. *"Read PLAN.md and .cursor/rules. Scaffold Phase 1: pnpm TS project, Drizzle SQLite schema from section 3, zod config with cities.json for Goa (port localities from legacy/src/geography.py). Add vitest. No providers yet."*
-2. *"Implement src/providers/overpass.ts for Goa's bbox (shop=clothes|boutique|fashion), mapping to Sighting, plus merge.ts using the dedupe key order in PLAN.md. Add a `find --source osm` CLI path and tests with a recorded fixture."*
-3. *"Implement the Google Places Text Search provider with field mask, locality × phrasing queries, and an api_usage guard that refuses calls past the configured daily/monthly limits."*
+- First European country to target, and its query language(s) (main spec §35).
+- Do LEAD prospects enter `to_prospect` automatically, or only after review? (main spec §35)
+- How `system_decision` is derived from priority and score: the specs don't define it, and `find --new` depends on it.
+- Places sightings: `sightings.raw_json` keeps full raw results and tech spec §5.3 lists name, address and phone on `Sighting`, which conflicts with the §7.1 storage rule. Decide what Places sightings keep before Phase 2.
