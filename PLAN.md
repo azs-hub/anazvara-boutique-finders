@@ -89,7 +89,7 @@ Instagram: **don't scrape it** (ToS, blocks). Capture handles from websites, Map
 | Concern | Choice | Why |
 |---|---|---|
 | Runtime | Node 22 + TypeScript, `pnpm`, `tsx` | You know it; Cursor handles TS well |
-| CLI | `commander` | `pnpm find --city Goa --new 50` |
+| CLI | `commander` | `pnpm cli find --city Goa --new 50` |
 | DB | SQLite via `better-sqlite3` + **Drizzle ORM** | Zero-ops, typed, migrations |
 | HTTP/crawl | `undici` fetch + `cheerio`; **Crawlee** (`CheerioCrawler`) if you want queueing, retries, robots & rate limits built in | Playwright only as a fallback for JS-only sites |
 | Validation | `zod` | LLM output schemas + config |
@@ -168,7 +168,7 @@ Score = weights over these fields plus contactability (phone/email/IG present) a
 - [ ] Cache by content hash, so reruns don't call the LLM again.
 
 ### Phase 6 — The product command (1 day)
-- [ ] `pnpm find --city Goa --new 50`: runs stages until 50 *new* LEAD+REVIEW businesses exist that weren't in previous runs.
+- [ ] `pnpm cli find --city Goa --new 50`: runs stages until 50 *new* LEAD+REVIEW businesses exist that weren't in previous runs.
 - [ ] `pnpm export --city Goa` → CSV (and optionally a Google Sheet) with contact columns + `status` for outreach.
 - [ ] `pnpm eval` → golden-set recall + precision report.
 

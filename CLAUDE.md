@@ -6,12 +6,13 @@ Finds physical multi-brand / concept / designer boutiques in India that could st
 - Node 22, TypeScript **6** strict (not 7: typescript-eslint doesn't support TS 7 yet), pnpm, ESM, `tsx` for running TS.
 - SQLite via `better-sqlite3` + Drizzle ORM (`drizzle-kit` for migrations in `drizzle/`).
 - `zod` v4 for config and all LLM output. `commander` for the CLI. `vitest` for tests.
-- pnpm 10 blocks native install scripts: keep `"pnpm": { "onlyBuiltDependencies": ["better-sqlite3", "esbuild"] }` in package.json.
+- pnpm 12: native builds are allowed via allowBuilds in pnpm-workspace.yaml (better-sqlite3, esbuild). onlyBuiltDependencies is ignored, so don't add it.
 
 ## Commands
 - `pnpm check`: typecheck + lint + tests. Run it after every change and fix failures before saying a task is done.
 - `pnpm db:generate --name <name>` after editing `src/db/schema.ts`. Never hand-edit files in `drizzle/`.
 - `pnpm cli <command>` runs the CLI.
+- `pnpm cli find --city <city>` finds boutiques in a city.
 
 ## Rules
 - `legacy/` is the old Python version. Read it for ideas (`legacy/src/geography.py`, `url_normalization.py`, `deduplication.py`, `search_queries.py`). Never modify it or port it line by line.
