@@ -169,8 +169,8 @@ Score = weights over these fields plus contactability (phone/email/IG present) a
 
 ### Phase 6 — The product command (1 day)
 - [ ] `pnpm cli find --city Goa --new 50`: runs stages until 50 *new* LEAD+REVIEW businesses exist that weren't in previous runs.
-- [ ] `pnpm export --city Goa` → CSV (and optionally a Google Sheet) with contact columns + `status` for outreach.
-- [ ] `pnpm eval` → golden-set recall + precision report.
+- [ ] `pnpm cli export --city Goa` → CSV (and optionally a Google Sheet) with contact columns + `status` for outreach.
+- [ ] `pnpm cli eval` → golden-set recall + precision report.
 
 ### Phase 7 — Iterate (ongoing)
 - [ ] Tune on eval only (never hard-code shop names into queries).

@@ -8,7 +8,6 @@
       "Bash(pnpm lint:*)",
       "Bash(pnpm test:*)",
       "Bash(pnpm cli:*)",
-      "Bash(pnpm find:*)",
       "Bash(pnpm db:generate:*)",
       "Bash(pnpm db:migrate)",
       "Bash(pnpm rebuild:*)",
