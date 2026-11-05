@@ -14,6 +14,7 @@ __pycache__/
 **/.DS_Store
 *.DS_Store*
 data/*.db
+data/*.db-*
 output/
 legacy/output/
 legacy/data/*.db

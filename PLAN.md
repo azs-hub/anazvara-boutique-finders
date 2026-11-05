@@ -80,7 +80,7 @@ Every stage reads from and writes to SQLite, so runs can resume and only do new 
 | **Ollama (qwen3 8B/9B)** | Extraction & qualification | Local | $0 (electricity) |
 | `deepresearch.tavily.com` | **Manual** seeding / sanity checks, not in the pipeline | UI | $0 |
 
-Every paid-API provider gets a **monthly budget counter in SQLite** that refuses calls once it reaches the free allowance.
+Every paid-API provider gets **usage counters in SQLite** (`api_usage`, one row per provider per day) and calls are refused once it reaches the free allowance. A monthly limit is checked against the sum of that month's rows.
 
 Instagram: **don't scrape it** (ToS, blocks). Capture handles from websites, Maps and search results. Review IG manually in the review step.
 
@@ -101,15 +101,27 @@ Instagram: **don't scrape it** (ToS, blocks). Capture handles from websites, Map
 ### Data model (minimal)
 
 ```
-businesses   id, name, city, locality, address, lat, lng, website_domain, instagram,
-             phone, email, maps_place_id, status(new|qualified|lead|review|rejected|contacted),
-             score, first_seen_run, updated_at
-sightings    business_id, source(osm|places|searxng|exa|tavily|guide), source_url, query, raw_json
-pages        url, business_id, fetched_at, status, text, jsonld
-qualification business_id, model, json, created_at
-runs         id, city, started_at, params, stats_json
-api_budget   provider, month, calls, cost_usd
+runs            id, city, started_at, finished_at, params, stats_json
+businesses      id, name, city, locality, address, lat, lng, website_domain, instagram,
+                phone, email, maps_place_id, status(new|qualified|lead|review|rejected|contacted),
+                score, first_seen_run, updated_at
+sightings       id, business_id (null until merged), source(osm|places|searxng|exa|tavily|guide),
+                source_url, query, raw_json
+pages           id, url, business_id, fetched_at, status, text, jsonld
+qualifications  id, business_id, model, json, created_at
+api_usage       provider, day, calls, cost_usd   (primary key: provider + day)
 ```
+
+The schema lives in `src/db/schema.ts`; the database file defaults to `data/stockists.db`.
+
+- **Save first, merge later:** sightings are saved with a null `business_id`, so a crash before merge doesn't lose results or repeat paid calls. Merge sets `business_id`.
+- **Allowed values:** `businesses.status` and `sightings.source` have CHECK constraints built from the same const arrays as the TypeScript types.
+- **Indexes:**
+  - `businesses`: unique on `maps_place_id`; plain on `website_domain`, `instagram`, `phone`, and `city` + `status`.
+  - `sightings`: `business_id`, plus a partial index for unmerged rows (`WHERE business_id IS NULL`).
+  - `pages`: unique on `business_id` + `url`.
+  - `qualifications`: `business_id`.
+- **No cascading deletes:** foreign keys block deletes, so a merge must move sightings, pages and qualifications to the surviving business before deleting the other one.
 
 Dedupe = Places `place_id` → website domain → IG handle → normalized phone → normalized name + locality (fuzzy, e.g. `fastest-levenshtein`).
 
@@ -209,4 +221,4 @@ legacy/ (python, read-only)
 
 1. *"Read PLAN.md and .cursor/rules. Scaffold Phase 1: pnpm TS project, Drizzle SQLite schema from section 3, zod config with cities.json for Goa (port localities from legacy/src/geography.py). Add vitest. No providers yet."*
 2. *"Implement src/providers/overpass.ts for Goa's bbox (shop=clothes|boutique|fashion), mapping to Sighting, plus merge.ts using the dedupe key order in PLAN.md. Add a `find --source osm` CLI path and tests with a recorded fixture."*
-3. *"Implement the Google Places Text Search provider with field mask, locality × phrasing queries, and an api_budget guard that refuses calls past the configured daily/monthly limits."*
+3. *"Implement the Google Places Text Search provider with field mask, locality × phrasing queries, and an api_usage guard that refuses calls past the configured daily/monthly limits."*

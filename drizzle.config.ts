@@ -5,6 +5,6 @@ export default defineConfig({
   schema: "./src/db/schema.ts",
   out: "./drizzle",
   dbCredentials: {
-    url: process.env.DATABASE_PATH ?? "data/stockist.db",
+    url: process.env.DATABASE_PATH ?? "data/stockists.db",
   },
 });
