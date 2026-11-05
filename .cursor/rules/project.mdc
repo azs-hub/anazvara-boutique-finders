@@ -4,7 +4,7 @@ alwaysApply: true
 ---
 
 # Context
-Finds physical multi-brand / concept / designer boutiques (India first: Goa, Mumbai, Delhi, Bengaluru) that could stock Anazvara, a contemporary Indian womenswear label. PLAN.md is the source of truth; read it before large changes.
+Finds physical multi-brand / concept / designer boutiques (India first: Goa, Mumbai, Delhi, Bengaluru) that could stock Anazvara, a contemporary Indian womenswear label. The Notion specs are the product source of truth: [main spec](https://app.notion.com/p/3e9be93e879780f7a5f4f385496c7bbc), [product specification](https://app.notion.com/p/3e9be93e87978019b53fe433880f0c90), [technical spec](https://app.notion.com/p/3e9be93e879780feb6cad8e2341911ae). PLAN.md is the implementation plan; read it before large changes.
 
 # Stack
 - Node 22, TypeScript strict, pnpm, ESM, tsx for scripts.
@@ -19,7 +19,7 @@ Finds physical multi-brand / concept / designer boutiques (India first: Goa, Mum
 - Cache LLM results by content hash; never re-qualify unchanged input.
 
 # Behaviour rules
-- Don't reject early. Discovery collects; only the qualify + score stages decide lead/review/rejected.
+- Don't reject early. Discovery collects; only the qualify + score stages decide `system_decision` (lead/review/excluded).
 - Never hard-code specific shop names in queries or logic. Reference shops live only in `eval/golden.json`.
 - Respect robots.txt, at most 1 req/s per host, 15 s timeout, 1 MiB response cap. Don't scrape Instagram or Google Maps HTML. Use official APIs only.
 - Keep thresholds and weights in config, not in code.
