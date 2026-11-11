@@ -1,0 +1,30 @@
+---
+description: Anazvara Stockist Finder — project conventions
+alwaysApply: true
+---
+
+# Context
+Finds physical multi-brand / concept / designer boutiques (India first: Goa, Mumbai, Delhi, Bengaluru) that could stock Anazvara, a contemporary Indian womenswear label. The Notion specs are the product source of truth: [main spec](https://app.notion.com/p/3e9be93e879780f7a5f4f385496c7bbc), [product specification](https://app.notion.com/p/3e9be93e87978019b53fe433880f0c90), [technical spec](https://app.notion.com/p/3e9be93e879780feb6cad8e2341911ae). PLAN.md is the implementation plan; read it before large changes.
+
+# Stack
+- Node 22, TypeScript strict, pnpm, ESM, tsx for scripts.
+- SQLite via better-sqlite3 + Drizzle ORM. All stage output goes to the DB; stages must be idempotent and resumable.
+- zod for config and every LLM output. Ollama via the `ollama` npm package using `format: <JSON schema>`, temperature 0.
+- cheerio for HTML; Playwright only as an explicit fallback.
+- vitest; network calls are mocked with recorded fixtures in `test/fixtures/`.
+
+# Cost rules (hard)
+- Every external paid API call goes through `providers/budget.ts` and is refused once it exceeds the configured free allowance.
+- Never add a paid service without a config flag that defaults to off.
+- Cache LLM results by content hash; never re-qualify unchanged input.
+
+# Behaviour rules
+- Don't reject early. Discovery collects; only the qualify + score stages decide `system_decision` (lead/review/excluded).
+- Never hard-code specific shop names in queries or logic. Reference shops live only in `eval/golden.json`.
+- Respect robots.txt, at most 1 req/s per host, 15 s timeout, 1 MiB response cap. Don't scrape Instagram or Google Maps HTML. Use official APIs only.
+- Keep thresholds and weights in config, not in code.
+- `legacy/` is the old Python implementation: read it for ideas, don't modify it or port it line by line.
+
+# Code style
+- Small pure functions; providers return `Sighting[]`; no global state except the DB client.
+- Add or update a vitest test with every module.

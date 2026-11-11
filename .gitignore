@@ -1,3 +1,4 @@
+node_modules/
 .venv/
 __pycache__/
 **/__pycache__/
@@ -13,8 +14,10 @@ __pycache__/
 **/.DS_Store
 *.DS_Store*
 data/*.db
-output/*.xlsx
-output/benchmark_*.json
+data/*.db-*
+output/
+legacy/output/
+legacy/data/*.db
 
 # Local SearXNG secrets and files generated at container start
 searxng/.env
