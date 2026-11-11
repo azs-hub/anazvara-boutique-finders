@@ -26,5 +26,17 @@ An unknown place, an unknown provider or invalid config prints the error and exi
 
 ## Development
 
-- `pnpm check`: typecheck, lint and tests.
-- `pnpm db:generate --name <name>` after editing `src/db/schema.ts`.
+The repo is a pnpm workspace. Run every command from the root.
+
+| Package | Contents |
+|---|---|
+| `apps/scraper` | The CLI (`pnpm cli`), providers and budget guard; later the discover, resolve, enrich, qualify and export stages. |
+| `packages/database` (`@anazvara/database`) | Drizzle schema, client, runs, and the `drizzle/` migrations. |
+| `packages/shared` (`@anazvara/shared`) | Config schemas and loader, places lookup, provider statuses, repo paths. |
+| `packages/scoring` (`@anazvara/scoring`) | Score, fit and priority rules (Phase 5). |
+
+`config/`, `data/`, `eval/` and `.env` stay at the root; `DATABASE_PATH` is resolved from the root whichever directory you run from.
+
+- `pnpm check`: typecheck, lint and tests for every package.
+- `pnpm db:generate --name <name>` after editing `packages/database/src/schema.ts`.
+- `pnpm db:migrate`: applies migrations with drizzle-kit (same effect as `pnpm cli db migrate`).

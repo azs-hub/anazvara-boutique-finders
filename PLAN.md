@@ -107,7 +107,7 @@ Instagram: **don't scrape it** (ToS, blocks). Capture handles from websites, Map
 
 ### Data model
 
-Built in Phase 1 (schema in `src/db/schema.ts`; database file defaults to `data/stockists.db`):
+Built in Phase 1 (schema in `packages/database/src/schema.ts`; database file defaults to `data/stockists.db`):
 
 ```
 runs            id, city, started_at, finished_at, params, stats_json
@@ -171,13 +171,13 @@ Each phase is reviewed and committed before the next one starts.
 ### Phase 1 — Skeleton & storage (in progress)
 - [x] Tooling: pnpm, TS strict, ESLint, Vitest (`942ce6d`).
 - [x] Database: Drizzle schema + migrations for the tables above (`2d2591d`).
-- [x] Config (`zod`, `src/config/`): `config/app.json` (providers, budgets, thresholds), `config/places.json` (India, Goa as a region, and 9 cities ported from `geography.py`), `config/markets.json` (India) and `config/anazvara-profile.json` (placeholders).
-- [x] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard (`src/providers/`). The registry is empty until Phase 2.
-- [x] CLI skeleton (`src/cli.ts`, `src/cli/`): `find`, `places`, `config`, `budget`, `db migrate`. `find` resolves the place and records a run; discovery comes in Phase 2.
+- [x] Config (`zod`, now `packages/shared/`): `config/app.json` (providers, budgets, thresholds), `config/places.json` (India, Goa as a region, and 9 cities ported from `geography.py`), `config/markets.json` (India) and `config/anazvara-profile.json` (placeholders).
+- [x] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard (`apps/scraper/src/providers/`). The registry is empty until Phase 2.
+- [x] CLI skeleton (`apps/scraper/src/cli.ts`, `cli/`): `find`, `places`, `config`, `budget`, `db migrate`. `find` resolves the place and records a run; discovery comes in Phase 2.
 - [ ] Wrap-up: review Phase 1 against this plan.
 
-### Phase 1.5 — Workspace & schema (next, only after Phase 1)
-- [ ] Move to a pnpm workspace: `apps/scraper`, `packages/database`, `packages/shared`, `packages/scoring` (`apps/web` comes in Phase 7).
+### Phase 1.5 — Workspace & schema (in progress)
+- [x] Move to a pnpm workspace: `apps/scraper`, `packages/database`, `packages/shared`, `packages/scoring` (`apps/web` comes in Phase 7). Packages are imported as `@anazvara/*`; one root tsconfig, vitest and ESLint config cover them all.
 - [ ] Add the evidence, overrides and jobs tables and the `businesses` fields from section 3.
 
 ### Phase 2 — High-yield sources first
@@ -219,16 +219,16 @@ Each phase is reviewed and committed before the next one starts.
 
 ## 5. Repo layout
 
-Today: a single package (`src/`, `drizzle/`, `test/`). Target from Phase 1.5:
+pnpm workspace since Phase 1.5. Each package has `src/` and `test/`.
 
 ```
 apps/
-  scraper/src/               # cli.ts, providers/ (+ budget.ts), discover/, resolve/, enrich/, qualify/, export/
+  scraper/                   # @anazvara/scraper: cli.ts, cli/, providers/ (+ budget.ts); later discover/, resolve/, enrich/, qualify/, export/
   web/                       # Next.js CRM (Phase 7)
 packages/
-  database/                  # Drizzle schema, migrations, client
-  shared/                    # config schemas, types, places catalog loader
-  scoring/                   # score, fit, priority (pure functions)
+  database/                  # @anazvara/database: Drizzle schema, client, runs; drizzle/ migrations, drizzle.config.ts
+  shared/                    # @anazvara/shared: config schemas, loader, places, provider statuses, repo paths
+  scoring/                   # @anazvara/scoring: score, fit, priority (pure functions; empty until Phase 5)
 config/                      # app.json, places.json, markets.json, anazvara-profile.json
 eval/golden.json
 legacy/ (python, read-only)

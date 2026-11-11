@@ -1,0 +1,16 @@
+{
+  "name": "@anazvara/scraper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@anazvara/database": "workspace:*",
+    "@anazvara/shared": "workspace:*",
+    "commander": "^15.0.0",
+    "dotenv": "^18.0.10",
+    "drizzle-orm": "^0.45.4"
+  }
+}
