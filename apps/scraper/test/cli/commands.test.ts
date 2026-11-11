@@ -2,11 +2,13 @@ import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { openDb } from "@anazvara/database";
+import { getRun, openDb, sightings } from "@anazvara/database";
 import { CONFIG_DIR, ConfigError, expandPlace, loadConfig, REPO_ROOT } from "@anazvara/shared";
 import {
   budgetRows,
   databasePath,
+  discoveryRows,
+  sampleRows,
   describeAreas,
   parseNewCount,
   parseSources,
@@ -19,6 +21,9 @@ import {
 } from "../../src/cli/commands.js";
 import { UserError } from "../../src/cli/errors.js";
 import { BudgetGuard } from "../../src/providers/budget.js";
+import type { ProviderFactories } from "../../src/providers/registry.js";
+import { fakeProvider } from "../providers/fake.js";
+import { ASSAGAO_ELEMENTS, fakeFetch, fixtureFetch, json, testOsm } from "../providers/overpass.js";
 
 const { places, app } = loadConfig();
 
@@ -160,10 +165,10 @@ describe("databasePath", () => {
 });
 
 describe("input errors", () => {
-  test("find rejects bad input before creating the database", () => {
+  test("find rejects bad input before creating the database", async () => {
     const ctx = context();
-    expect(() => runFind(ctx, { location: "atlantis", new: "50" })).toThrow(UserError);
-    expect(() => runFind(ctx, { location: "goa", new: "50", sources: "google" })).toThrow(UserError);
+    await expect(runFind(ctx, { location: "atlantis", new: "50" })).rejects.toThrow(UserError);
+    await expect(runFind(ctx, { location: "goa", new: "50", sources: "google" })).rejects.toThrow(UserError);
     expect(existsSync(join(dir, "test.db"))).toBe(false);
   });
 
@@ -174,5 +179,88 @@ describe("input errors", () => {
 
     expect(() => runConfig(context({ configDir }))).toThrow(ConfigError);
     expect(() => runConfig(context({ configDir }))).toThrow(/fetch\.timeoutMs/);
+  });
+});
+
+describe("find", () => {
+  const osmFrom = (fetchFn: typeof fetch): ProviderFactories => ({ osm: () => testOsm(fetchFn).provider });
+  const named = ASSAGAO_ELEMENTS.length - 1;
+  const row = (provider: string) => lines.find((line) => line.startsWith(`${provider} `));
+
+  test("saves sightings, then reports them as already seen on a second run", async () => {
+    const { fetch, requests } = fixtureFetch();
+    const ctx = context({ factories: osmFrom(fetch) });
+
+    await runFind(ctx, { location: "goa", new: "50", sources: "osm" });
+
+    expect(requests).toHaveLength(1);
+    expect(lines).toContain("Active providers: osm");
+    expect(row("osm")?.split(/\s{2,}/)).toEqual(["osm", "1/1", "1", String(named), String(named), "0", "1", "ok"]);
+    expect(lines).toContain(`New sightings (${named} of ${named}):`);
+    expect(lines.some((line) => line.startsWith("No Nasties ") && line.includes("Mapusa-Assagao-Anjuna Road"))).toBe(true);
+    expect(lines.some((line) => line.startsWith("Note: --new is not enforced yet."))).toBe(true);
+    expect(lines.at(-1)).toBe(`Run #1 finished: ${named} sightings, ${named} new, 0 already seen.`);
+
+    lines = [];
+    await runFind(ctx, { location: "goa", new: "50", sources: "osm" });
+
+    expect(row("osm")?.split(/\s{2,}/)).toEqual(["osm", "1/1", "1", String(named), "0", String(named), "1", "ok"]);
+    expect(lines.some((line) => line.startsWith("New sightings"))).toBe(false);
+    expect(lines.at(-1)).toBe(`Run #2 finished: ${named} sightings, 0 new, ${named} already seen.`);
+
+    const db = openDb(join(dir, "test.db"));
+    expect(db.select().from(sightings).all()).toHaveLength(named);
+    expect(getRun(db, 2)?.statsJson).toMatchObject({
+      sightings: named,
+      newSightings: 0,
+      alreadySeen: named,
+      unnamed: 1,
+      providers: [{ provider: "osm", queries: 1, calls: 1, found: named, inserted: 0, alreadySeen: named, unnamed: 1 }],
+    });
+    expect(new BudgetGuard(db, app.providers).usage("osm").dailyCalls).toBe(2);
+    db.$client.close();
+  });
+
+  test("a failing provider is printed and the run still finishes", async () => {
+    const { fetch } = fakeFetch(() => json("bad", 400));
+    const ctx = context({ factories: osmFrom(fetch) });
+
+    await runFind(ctx, { location: "goa", new: "50", sources: "osm" });
+
+    expect(row("osm")).toMatch(/failed$/);
+    expect(lines).toContain("  osm failed: Overpass returned HTTP 400: bad");
+    expect(lines.at(-1)).toBe("Run #1 finished: 0 sightings, 0 new, 0 already seen.");
+  });
+
+  test("the budget stops a provider cleanly", async () => {
+    const configDir = join(dir, "config");
+    cpSync(CONFIG_DIR, configDir, { recursive: true });
+    const tight = structuredClone(app);
+    tight.providers.osm.dailyLimit = 1;
+    writeFileSync(join(configDir, "app.json"), JSON.stringify(tight));
+    const ctx = context({ configDir, factories: { osm: () => fakeProvider("osm", { supports: ["area"] }) } });
+
+    await runFind(ctx, { location: "india", new: "50", sources: "osm" });
+
+    expect(row("osm")?.split(/\s{2,}/).slice(0, 3)).toEqual(["osm", `1/${places.length - 1}`, "1"]);
+    expect(row("osm")).toMatch(/budget limit$/);
+    expect(lines).toContain("  osm stopped: osm: daily limit reached (1 of 1 calls used)");
+  });
+});
+
+describe("discoveryRows and sampleRows", () => {
+  test("format provider counts and status", () => {
+    const base = { queries: 2, queriesDone: 1, calls: 2, found: 5, inserted: 3, alreadySeen: 2, unnamed: 1 };
+    expect(discoveryRows([{ provider: "osm", ...base, error: "x" }])).toEqual([
+      ["osm", "1/2", "2", "5", "3", "2", "1", "failed"],
+    ]);
+  });
+
+  test("sample shows name and address, at most the sample size", () => {
+    const sighting = { source: "osm" as const, externalId: "node/1", placeKey: "goa" };
+    expect(sampleRows([{ ...sighting, name: "Rang" }, sighting, sighting], 2)).toEqual([
+      ["Rang", "-"],
+      ["-", "-"],
+    ]);
   });
 });

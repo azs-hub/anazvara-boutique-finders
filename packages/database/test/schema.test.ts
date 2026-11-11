@@ -16,8 +16,9 @@ import {
   SIGHTING_SOURCES,
   sightings,
   SYSTEM_DECISIONS,
+  type SightingSource,
 } from "../src/schema.js";
-import { insertBusiness, NOW } from "./helpers.js";
+import { insertBusiness, insertSighting, NOW } from "./helpers.js";
 
 let db: Db;
 
@@ -54,7 +55,7 @@ const ENUM_CASES: EnumCase[] = [
   {
     column: "sightings.source",
     values: SIGHTING_SOURCES,
-    insert: (value) => db.$client.prepare("insert into sightings (source, raw_json) values (?, '{}')").run(value),
+    insert: (value) => insertSighting(db, { source: value as SightingSource }),
   },
   {
     column: "evidence.source",
@@ -124,7 +125,7 @@ describe("businesses", () => {
 
   test("cannot be deleted while a sighting points at it", () => {
     const business = insertBusiness(db);
-    db.insert(sightings).values({ businessId: business.id, source: "osm", rawJson: {} }).run();
+    insertSighting(db, { businessId: business.id });
 
     const deleteBusiness = db.$client.prepare("delete from businesses where id = ?");
 
@@ -147,7 +148,7 @@ describe("businesses", () => {
 
 describe("sightings", () => {
   test("can be saved before merge, without a business", () => {
-    const row = db.insert(sightings).values({ source: "osm", rawJson: {} }).returning().get();
+    const row = insertSighting(db);
 
     expect(row.businessId).toBeNull();
   });
@@ -155,8 +156,8 @@ describe("sightings", () => {
   // Names the index because SQLite's planner prefers sightings_business_id_idx for this query.
   test("partial index returns only unmerged rows", () => {
     const business = insertBusiness(db);
-    db.insert(sightings).values({ businessId: business.id, source: "osm", rawJson: {} }).run();
-    const unmerged = db.insert(sightings).values({ source: "osm", rawJson: {} }).returning().get();
+    insertSighting(db, { businessId: business.id });
+    const unmerged = insertSighting(db);
 
     const rows = db.$client
       .prepare("select id from sightings indexed by sightings_unmerged_idx where business_id is null")
@@ -165,11 +166,23 @@ describe("sightings", () => {
     expect(rows).toEqual([{ id: unmerged.id }]);
   });
 
+  test("is unique per source, external id and place", () => {
+    insertSighting(db, { externalId: "node/7", placeKey: "goa" });
+
+    expect(() => insertSighting(db, { externalId: "node/7", placeKey: "goa" })).toThrow(/UNIQUE/);
+    expect(() => insertSighting(db, { externalId: "node/7", placeKey: "mumbai" })).not.toThrow();
+    expect(() => insertSighting(db, { externalId: "node/7", placeKey: "goa", source: "places" })).not.toThrow();
+  });
+
+  test("needs an existing run", () => {
+    expect(() => insertSighting(db, { runId: 999 })).toThrow(/FOREIGN KEY/);
+  });
+
   test("round-trips raw_json", () => {
     const business = insertBusiness(db);
     const raw = { tags: { shop: "boutique" }, ids: [1, 2] };
 
-    db.insert(sightings).values({ businessId: business.id, source: "osm", rawJson: raw }).run();
+    insertSighting(db, { businessId: business.id, rawJson: raw });
 
     const row = db.select().from(sightings).where(eq(sightings.businessId, business.id)).get();
     expect(row?.rawJson).toEqual(raw);

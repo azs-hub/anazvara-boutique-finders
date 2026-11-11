@@ -6,6 +6,7 @@ import { UserError } from "../../src/cli/errors.js";
 import { createProgram, describeError } from "../../src/cli/program.js";
 import { ConfigError } from "@anazvara/shared";
 import { openDb, getRun } from "@anazvara/database";
+import { ASSAGAO_ELEMENTS, fixtureFetch, testOsm } from "../providers/overpass.js";
 
 let dir: string;
 let dbPath: string;
@@ -22,8 +23,12 @@ afterEach(() => {
 });
 
 async function run(...args: string[]): Promise<void> {
-  // No provider keys: the shell's environment must not leak into the test.
-  const program = createProgram({ env: { DATABASE_PATH: dbPath }, out: (line) => lines.push(line) });
+  // No provider keys: the shell's environment must not leak into the test. OSM answers from the fixture.
+  const program = createProgram({
+    env: { DATABASE_PATH: dbPath },
+    out: (line) => lines.push(line),
+    factories: { osm: () => testOsm(fixtureFetch().fetch).provider },
+  });
   await program.parseAsync(args, { from: "user" });
 }
 
@@ -34,8 +39,7 @@ describe("find (smoke)", () => {
     expect(lines).toContain("Place: Goa (region, India) [goa]");
     expect(lines.some((line) => line.startsWith("Searchable areas: 25 "))).toBe(true);
     expect(lines).toContain("  skipped searxng: SEARXNG_URL is not set");
-    expect(lines).toContain("  skipped osm: not implemented yet");
-    expect(lines).toContain("Discovery providers arrive in Phase 2: nothing was searched.");
+    expect(lines).toContain("Active providers: osm");
 
     const db = openDb(dbPath);
     const stored = getRun(db, 1);
@@ -44,7 +48,7 @@ describe("find (smoke)", () => {
       command: "find",
       city: "goa",
       params: { location: "goa", placeKey: "goa", new: 50, sources: "all" },
-      statsJson: { areas: 25, providers: [], sightings: 0, newBusinesses: 0 },
+      statsJson: { areas: 25, sightings: ASSAGAO_ELEMENTS.length - 1, newBusinesses: 0 },
     });
     expect(stored?.finishedAt).not.toBeNull();
   });
@@ -65,7 +69,7 @@ describe("other commands", () => {
 
   test("db migrate creates the database, budget reads it", async () => {
     await run("db", "migrate");
-    expect(lines).toEqual([`Created database: ${dbPath}`, "Migrations applied: 2 (up to date)"]);
+    expect(lines).toEqual([`Created database: ${dbPath}`, "Migrations applied: 3 (up to date)"]);
 
     lines = [];
     await run("budget");

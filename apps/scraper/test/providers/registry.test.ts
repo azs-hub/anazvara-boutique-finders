@@ -39,11 +39,11 @@ function fakes(...names: ProviderName[]): ProviderFactories {
 }
 
 describe("buildProviders", () => {
-  test("no providers are registered yet", () => {
-    expect(PROVIDER_FACTORIES).toEqual({});
-    expect(buildProviders(allEnabled(), ALL_ENV, db).skipped.map((s) => s.reason)).toEqual(
-      Array(5).fill("not implemented yet"),
-    );
+  test("only OSM is registered so far", () => {
+    expect(Object.keys(PROVIDER_FACTORIES)).toEqual(["osm"]);
+    const { providers, skipped } = buildProviders(allEnabled(), ALL_ENV, db);
+    expect(providers.map((provider) => provider.name)).toEqual(["osm"]);
+    expect(skipped.map((s) => s.reason)).toEqual(Array(4).fill("not implemented yet"));
   });
 
   test("skips with the right reason: disabled, missing env, or not implemented", () => {

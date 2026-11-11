@@ -149,6 +149,16 @@ export const appSchema = z.strictObject({
     maxBytes: positiveInt,
     maxPagesPerSite: positiveInt,
   }),
+  // OpenStreetMap Overpass. The User-Agent is fetch.userAgent (OSM usage policy asks for one).
+  osm: z.strictObject({
+    overpassUrl: z.url(),
+    // Values of the OSM `shop` tag to collect. Nothing else is filtered: later stages decide.
+    shopValues: uniqueStrings(z.string().regex(/^[a-z_]+$/, "must be an OSM tag value")).min(1),
+    // Also sent to Overpass as the query's [timeout:…], in seconds.
+    timeoutMs: z.number().int().min(1000),
+    // Wait before the one retry after a 429 or 504 that has no Retry-After header.
+    retryDelayMs: z.number().int().min(0),
+  }),
   // The model and host come from OLLAMA_MODEL and OLLAMA_HOST in .env.
   llm: z.strictObject({
     provider: z.literal("ollama"),

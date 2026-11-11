@@ -1,0 +1,156 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-11-11T06:49:06Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "node",
+      "id": 5310682423,
+      "lat": 15.5962128,
+      "lon": 73.7444142,
+      "tags": {
+        "name": "Billy Leather Shop",
+        "shop": "clothes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8249831857,
+      "lat": 15.5960301,
+      "lon": 73.747738,
+      "tags": {
+        "addr:city": "Vagator goa",
+        "addr:postcode": "403509",
+        "addr:street": "Ozran Beach Road",
+        "clothes": "women",
+        "name": "Bean Me UP",
+        "organic": "yes",
+        "payment:cash": "yes",
+        "payment:debit_cards": "yes",
+        "shop": "clothes",
+        "website": "https://beanmeup.in/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9597185417,
+      "lat": 15.5821993,
+      "lon": 73.75264,
+      "tags": {
+        "name": "Indian project",
+        "shop": "clothes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11379329797,
+      "lat": 15.5909052,
+      "lon": 73.7700644,
+      "tags": {
+        "name": "Orange Oregano",
+        "shop": "clothes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12238203259,
+      "lat": 15.5694273,
+      "lon": 73.7426848,
+      "tags": {
+        "check_date": "2024-10-09",
+        "name": "Clothing Atore",
+        "shop": "clothes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12238203267,
+      "lat": 15.5721753,
+      "lon": 73.7434875,
+      "tags": {
+        "check_date": "2024-10-09",
+        "name": "Jewellery Store",
+        "shop": "fashion_accessories"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12339297511,
+      "lat": 15.5903931,
+      "lon": 73.7668723,
+      "tags": {
+        "name": "Rang",
+        "phone": "+91 8380093338",
+        "shop": "tailor"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12401390476,
+      "lat": 15.6140699,
+      "lon": 73.7700346,
+      "tags": {
+        "shop": "tailor"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12602879472,
+      "lat": 15.5809222,
+      "lon": 73.7587362,
+      "tags": {
+        "name": "Slay Devi",
+        "shop": "fashion_accessories"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12642410211,
+      "lat": 15.5873049,
+      "lon": 73.7582694,
+      "tags": {
+        "name": "Palm Flair",
+        "shop": "clothes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13390943726,
+      "lat": 15.5995464,
+      "lon": 73.7379684,
+      "tags": {
+        "addr:floor": "G",
+        "check_date": "2025-12-20",
+        "level": "0",
+        "name": "Wild Wirecraft",
+        "shop": "fashion_accessories"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13704959781,
+      "lat": 15.5975341,
+      "lon": 73.7877078,
+      "tags": {
+        "addr:city": "Assagaon",
+        "addr:district": "North Goa",
+        "addr:housenumber": "46",
+        "addr:postcode": "403507",
+        "addr:street": "Mapusa-Assagao-Anjuna Road",
+        "branch": "Assagao, Goa",
+        "brand": "No Nasties",
+        "clothes": "women;men;children",
+        "email": "betty@nonasties.in",
+        "mobile": "+918792469162",
+        "name": "No Nasties",
+        "opening_hours": "Mo-Su 11:00-21:00",
+        "organic": "yes",
+        "shop": "clothes",
+        "website": "https://www.nonasties.in/"
+      }
+    }
+  ]
+}

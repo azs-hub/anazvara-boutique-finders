@@ -1,17 +1,18 @@
 import { providerStatuses, type Config, type ProviderName } from "@anazvara/shared";
 import type { Db } from "@anazvara/database";
 import { BudgetGuard, withBudget } from "./budget.js";
-import type { Provider } from "./types.js";
+import { osmFactory } from "./osm.js";
+import type { BudgetedProvider, Provider } from "./types.js";
 
 export type Env = Readonly<Record<string, string | undefined>>;
 export type ProviderFactory = (config: Config, env: Env) => Provider;
 export type ProviderFactories = Partial<Record<ProviderName, ProviderFactory>>;
 
-/** The one place providers are registered. Filled in Phase 2. */
-export const PROVIDER_FACTORIES: ProviderFactories = {};
+/** The one place providers are registered. */
+export const PROVIDER_FACTORIES: ProviderFactories = { osm: osmFactory };
 
 export interface BuiltProviders {
-  providers: Provider[];
+  providers: BudgetedProvider[];
   skipped: { name: ProviderName; reason: string }[];
 }
 

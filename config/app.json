@@ -44,6 +44,12 @@
     "maxBytes": 1048576,
     "maxPagesPerSite": 4
   },
+  "osm": {
+    "overpassUrl": "https://overpass-api.de/api/interpreter",
+    "shopValues": ["clothes", "boutique", "fashion", "fashion_accessories", "tailor"],
+    "timeoutMs": 90000,
+    "retryDelayMs": 30000
+  },
   "llm": {
     "provider": "ollama",
     "temperature": 0,

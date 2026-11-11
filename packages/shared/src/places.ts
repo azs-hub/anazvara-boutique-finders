@@ -27,8 +27,23 @@ function asArea(place: Place): SearchArea {
 export function expandPlace(places: readonly Place[], place: Place): SearchArea[] {
   const areas: SearchArea[] =
     place.type === "country"
-      ? places.filter((other) => other.type !== "country" && other.country === place.country).map(asArea)
+      ? childPlaces(places, place).map(asArea)
       : place.neighbourhoods.map((name) => ({ name, type: "neighbourhood", place }));
 
   return areas.length > 0 ? areas : [asArea(place)];
+}
+
+/**
+ * The areas of a place that have their own bbox, for area (bounding-box)
+ * searches: a city or region itself, or a country's cities and regions.
+ * Neighbourhoods have no bbox. A country with no places in it returns itself.
+ */
+export function bboxAreas(places: readonly Place[], place: Place): SearchArea[] {
+  if (place.type !== "country") return [asArea(place)];
+  const children = childPlaces(places, place).map(asArea);
+  return children.length > 0 ? children : [asArea(place)];
+}
+
+function childPlaces(places: readonly Place[], country: Place): Place[] {
+  return places.filter((other) => other.type !== "country" && other.country === country.country);
 }

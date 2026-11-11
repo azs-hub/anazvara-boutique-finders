@@ -152,11 +152,29 @@ export const sightings = sqliteTable(
     // Null until merge links the sighting to a business.
     businessId: integer("business_id").references(() => businesses.id),
     source: text("source", { enum: SIGHTING_SOURCES }).notNull(),
+    // Stable id within the source, e.g. OSM "node/123", a place id or a normalized URL.
+    externalId: text("external_id").notNull(),
+    // Key of the catalog place that was searched (config/places.json).
+    placeKey: text("place_key").notNull(),
+    // The run that first saw this sighting.
+    runId: integer("run_id")
+      .notNull()
+      .references(() => runs.id),
     sourceUrl: text("source_url"),
     query: text("query"),
+    // What the source said, as is. Matching (Phase 2b) reads these; they are not verified facts.
+    name: text("name"),
+    address: text("address"),
+    lat: real("lat"),
+    lng: real("lng"),
+    phone: text("phone"),
+    website: text("website"),
+    instagram: text("instagram"),
     rawJson: text("raw_json", { mode: "json" }).$type<unknown>().notNull(),
   },
   (table) => [
+    // The same find from the same source for the same place is saved once, however many runs see it.
+    uniqueIndex("sightings_source_external_id_place_key_unique").on(table.source, table.externalId, table.placeKey),
     index("sightings_business_id_idx").on(table.businessId),
     index("sightings_unmerged_idx").on(table.id).where(isNull(table.businessId)),
     check("sightings_source_check", isOneOf(table.source, SIGHTING_SOURCES)),

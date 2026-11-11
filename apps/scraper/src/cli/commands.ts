@@ -15,8 +15,10 @@ import {
   type ProviderStatus,
   type SearchArea,
 } from "@anazvara/shared";
+import { discover, type ProviderStats } from "../discover/discover.js";
 import { BudgetGuard } from "../providers/budget.js";
 import { buildProviders, PROVIDER_FACTORIES, type Env, type ProviderFactories } from "../providers/registry.js";
+import type { Sighting } from "../providers/types.js";
 import { UserError } from "./errors.js";
 import { formatTable, type Row } from "./table.js";
 
@@ -29,6 +31,8 @@ export interface CliContext {
   /** Defaults to the repo's config/ directory. */
   configDir?: string;
   factories?: ProviderFactories;
+  /** Aborts a running search (e.g. a cancelled job). */
+  signal?: AbortSignal;
 }
 
 // ---- Argument parsing -------------------------------------------------------
@@ -128,6 +132,15 @@ function withDb<T>(ctx: CliContext, use: (db: Db) => T): T {
   }
 }
 
+async function withDbAsync<T>(ctx: CliContext, use: (db: Db) => Promise<T>): Promise<T> {
+  const db = openDb(databasePath(ctx.env));
+  try {
+    return await use(db);
+  } finally {
+    db.$client.close();
+  }
+}
+
 function printTable(ctx: CliContext, header: Row, rows: readonly Row[]): void {
   for (const line of formatTable(header, rows)) ctx.out(line);
 }
@@ -138,7 +151,26 @@ export interface FindOptions {
   sources?: string;
 }
 
-export function runFind(ctx: CliContext, options: FindOptions): void {
+export const SAMPLE_SIZE = 15;
+
+export function discoveryRows(stats: readonly ProviderStats[]): Row[] {
+  return stats.map((stat) => [
+    stat.provider,
+    `${stat.queriesDone}/${stat.queries}`,
+    String(stat.calls),
+    String(stat.found),
+    String(stat.inserted),
+    String(stat.alreadySeen),
+    String(stat.unnamed),
+    stat.error !== undefined ? "failed" : stat.budgetStop !== undefined ? "budget limit" : "ok",
+  ]);
+}
+
+export function sampleRows(sightings: readonly Sighting[], size = SAMPLE_SIZE): Row[] {
+  return sightings.slice(0, size).map((sighting) => [sighting.name ?? "-", sighting.address ?? "-"]);
+}
+
+export async function runFind(ctx: CliContext, options: FindOptions): Promise<void> {
   // Check everything the user typed before touching the database.
   const target = parseNewCount(options.new);
   const only = parseSources(options.sources);
@@ -146,7 +178,7 @@ export function runFind(ctx: CliContext, options: FindOptions): void {
   const place = resolvePlace(config.places, options.location);
   const areas = expandPlace(config.places, place);
 
-  withDb(ctx, (db) => {
+  await withDbAsync(ctx, async (db) => {
     const run = startRun(db, {
       command: "find",
       city: place.key,
@@ -156,20 +188,52 @@ export function runFind(ctx: CliContext, options: FindOptions): void {
     ctx.out(`Place: ${place.name} (${place.type}, ${place.country}) [${place.key}]`);
     ctx.out(`Searchable areas: ${describeAreas(areas)}`);
     ctx.out(`Target: ${target} new boutiques`);
+    ctx.out(
+      "Note: --new is not enforced yet. Sightings are merged into businesses from Phase 2b, " +
+        "so this run collects everything the providers return.",
+    );
 
     const { providers, skipped } = buildProviders(config, ctx.env, db, ctx.factories ?? PROVIDER_FACTORIES, only);
     ctx.out(`Active providers: ${providers.map((provider) => provider.name).join(", ") || "none"}`);
     for (const { name, reason } of skipped) ctx.out(`  skipped ${name}: ${reason}`);
-    ctx.out("Discovery providers arrive in Phase 2: nothing was searched.");
 
+    const { stats, inserted } = await discover(db, run.id, providers, config.places, place, ctx.signal);
+
+    if (stats.length > 0) {
+      ctx.out("");
+      printTable(
+        ctx,
+        ["provider", "queries", "calls", "found", "new", "already seen", "unnamed skipped", "status"],
+        discoveryRows(stats),
+      );
+      for (const stat of stats) {
+        if (stat.queries === 0) ctx.out(`  ${stat.provider}: no queries for it yet (text queries come in Phase 3)`);
+        if (stat.budgetStop !== undefined) ctx.out(`  ${stat.provider} stopped: ${stat.budgetStop}`);
+        if (stat.error !== undefined) ctx.out(`  ${stat.provider} failed: ${stat.error}`);
+      }
+    }
+
+    if (inserted.length > 0) {
+      ctx.out("");
+      ctx.out(`New sightings (${Math.min(SAMPLE_SIZE, inserted.length)} of ${inserted.length}):`);
+      printTable(ctx, ["name", "address"], sampleRows(inserted));
+    }
+
+    const total = (pick: (stat: ProviderStats) => number) => stats.reduce((sum, stat) => sum + pick(stat), 0);
+    const found = total((stat) => stat.found);
+    const alreadySeen = total((stat) => stat.alreadySeen);
     finishRun(db, run.id, {
       areas: areas.length,
-      providers: providers.map((provider) => provider.name),
+      providers: stats,
       skipped,
-      sightings: 0,
+      sightings: found,
+      newSightings: inserted.length,
+      alreadySeen,
+      unnamed: total((stat) => stat.unnamed),
       newBusinesses: 0,
     });
-    ctx.out(`Run #${run.id} finished: 0 sightings, 0 new businesses.`);
+    ctx.out("");
+    ctx.out(`Run #${run.id} finished: ${found} sightings, ${inserted.length} new, ${alreadySeen} already seen.`);
   });
 }
 

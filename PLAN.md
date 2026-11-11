@@ -121,7 +121,8 @@ businesses      id, name, country, region, city, locality, address, lat, lng, st
                   to_recontact|lost|invalid), set only by the user,
                 last_contacted, next_follow_up, do_not_contact (default false), first_seen_run, updated_at
 sightings       id, business_id (null until merged), source(osm|places|searxng|exa|tavily|guide|manual),
-                source_url, query, raw_json
+                external_id, place_key, run_id (first run that saw it), source_url, query,
+                name, address, lat, lng, phone, website, instagram (as the source gave them), raw_json
 pages           id, url, business_id, fetched_at, status, text, jsonld
 qualifications  id, business_id, model, json, created_at
 evidence        id, business_id, field, value, source(osm|places|searxng|exa|tavily|guide|website|llm|user|manual),
@@ -136,7 +137,7 @@ api_usage       provider, day, calls, cost_usd   (primary key: provider + day)
 - **Allowed values:** every enum column has a CHECK constraint built from the same const array as its TypeScript type. CHECKs name columns unqualified, because drizzle-kit rebuilds tables as `__new_<table>` and SQLite then rejects a rename when a CHECK still names the old table.
 - **Indexes:**
   - `businesses`: unique on `maps_place_id`; plain on `website_domain`, `instagram`, `phone`, `city`, and `system_decision` + `priority`.
-  - `sightings`: `business_id`, plus a partial index for unmerged rows (`WHERE business_id IS NULL`).
+  - `sightings`: unique on `source` + `external_id` + `place_key` (a repeat find is saved once); `business_id`, plus a partial index for unmerged rows (`WHERE business_id IS NULL`).
   - `pages`: unique on `business_id` + `url`.
   - `qualifications`: `business_id`.
   - `evidence`: `business_id` + `field`.
@@ -180,7 +181,7 @@ Each phase is reviewed and committed before the next one starts.
 - [x] Add the evidence, overrides and jobs tables, the CRM and verification fields on `businesses`, and `runs.command` (spec v1.1; migration `0001_crm_evidence_overrides_jobs`).
 
 ### Phase 2 — High-yield sources first
-- [ ] **Overpass provider**: clothes/boutique/fashion shops in the location's bbox → sightings.
+- [x] **2a Overpass provider** (`apps/scraper/src/providers/osm.ts`): `shop` values from `config/app.json` (`osm.shopValues`) in each area with a bbox (a city or region itself, a country's cities and regions) → sightings. One request at a time, one retry on 429/504 (reserved through `ctx.reserve`), unnamed elements skipped and counted. `find` saves sightings (`discover/saveSightings.ts`, first run wins) and prints per-provider counts. First Goa run: 325 sightings, 50 unnamed skipped, 1 call.
 - [ ] **Google Places provider**: Text Search per neighbourhood × store-type wording, field mask limited to what you need. Hard daily cap. Applies the §7.1 storage rule.
 - [ ] Matching + merge/dedupe service → `businesses`.
 - [ ] Run Goa: **check golden-set recall now.**

@@ -1,7 +1,7 @@
 import { and, eq, like, sql } from "drizzle-orm";
 import type { AppConfig, ProviderName } from "@anazvara/shared";
 import { type Db, apiUsage } from "@anazvara/database";
-import type { Provider } from "./types.js";
+import type { BudgetedProvider, Provider } from "./types.js";
 
 export type ProviderLimits = Pick<AppConfig["providers"][ProviderName], "costPerCallUsd" | "dailyLimit" | "monthlyLimit">;
 export type BudgetPeriod = "daily" | "monthly";
@@ -112,23 +112,28 @@ export class BudgetGuard {
 }
 
 /**
- * Wraps a provider so every search reserves its calls first. A request that
- * fails after reserving still counts: over-counting is the safe direction.
+ * Wraps a provider so every request is reserved before it is sent: the first
+ * from estimateCalls(), extra pages and retries through ctx.reserve(). A
+ * request that fails after reserving still counts: over-counting is the safe direction.
  */
-export function withBudget(provider: Provider, guard: BudgetGuard): Provider {
+export function withBudget(provider: Provider, guard: BudgetGuard): BudgetedProvider {
   return {
     name: provider.name,
     supports: provider.supports,
     ...(provider.estimateCalls && { estimateCalls: provider.estimateCalls.bind(provider) }),
     // Async so every refusal reaches the caller as a rejected promise.
-    async search(query, ctx) {
+    async search(query, ctx = {}) {
       // Check what costs nothing before spending budget.
       ctx.signal?.throwIfAborted();
       if (!provider.supports.includes(query.kind)) {
         throw new Error(`${provider.name} does not support ${query.kind} queries`);
       }
-      guard.reserve(provider.name, provider.estimateCalls?.(query) ?? 1);
-      return provider.search(query, ctx);
+      const reserve = (calls: number) => {
+        guard.reserve(provider.name, calls);
+        ctx.onReserve?.(calls);
+      };
+      reserve(provider.estimateCalls?.(query) ?? 1);
+      return provider.search(query, { runId: ctx.runId, signal: ctx.signal, reserve });
     },
   };
 }

@@ -32,15 +32,44 @@ export type ProviderQuery =
 
 export type QueryKind = ProviderQuery["kind"];
 
+/** What a caller passes to a budgeted provider (see withBudget). */
+export interface SearchContext {
+  runId?: number;
+  signal?: AbortSignal;
+  /** Told about every reservation that succeeds, so the caller can count calls. */
+  onReserve?: (calls: number) => void;
+}
+
+/** What a provider receives. withBudget builds it. */
 export interface ProviderContext {
   runId?: number;
   signal?: AbortSignal;
+  /**
+   * Reserves `calls` more against the budget. The first request is reserved
+   * already (estimateCalls); call this before each extra page or retry.
+   * Throws BudgetExceededError, and then the request must not be sent.
+   */
+  reserve(calls: number): void;
 }
 
-export interface Provider {
+export interface SearchResult {
+  sightings: Sighting[];
+  /** Results the provider dropped because they have no name. */
+  unnamed: number;
+}
+
+interface ProviderInfo {
   readonly name: ProviderName;
   readonly supports: readonly QueryKind[];
-  /** Billable calls one search will make. Defaults to 1. */
+  /** Billable calls one search will make, reserved before it starts. Defaults to 1. */
   estimateCalls?(query: ProviderQuery): number;
-  search(query: ProviderQuery, ctx: ProviderContext): Promise<Sighting[]>;
+}
+
+export interface Provider extends ProviderInfo {
+  search(query: ProviderQuery, ctx: ProviderContext): Promise<SearchResult>;
+}
+
+/** A provider wrapped by withBudget: every request it sends is reserved first. */
+export interface BudgetedProvider extends ProviderInfo {
+  search(query: ProviderQuery, ctx?: SearchContext): Promise<SearchResult>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { loadConfig } from "../src/load.js";
-import { expandPlace, findPlace } from "../src/places.js";
+import { bboxAreas, expandPlace, findPlace } from "../src/places.js";
 import type { Place } from "../src/schema.js";
 
 const { places } = loadConfig();
@@ -85,5 +85,27 @@ describe("expandPlace", () => {
 
     expect(expandPlace(places, empty)).toEqual([{ name: "Pune", type: "city", place: empty }]);
     expect(expandPlace(places, country)).toEqual([{ name: "India", type: "country", place: country }]);
+  });
+});
+
+describe("bboxAreas", () => {
+  test("a region or city is searched as itself, not by neighbourhood", () => {
+    const goa = get("goa");
+
+    expect(bboxAreas(places, goa)).toEqual([{ name: "Goa", type: "region", place: goa }]);
+    expect(bboxAreas(places, get("mumbai")).map((area) => area.place.key)).toEqual(["mumbai"]);
+  });
+
+  test("a country is searched by its cities and regions", () => {
+    const keys = bboxAreas(places, get("india")).map((area) => area.place.key);
+
+    expect(keys).toEqual(expandPlace(places, get("india")).map((area) => area.place.key));
+    expect(keys).not.toContain("india");
+  });
+
+  test("a country with no places in it returns itself", () => {
+    const country: Place = { ...get("india"), country: "Nowhere" };
+
+    expect(bboxAreas(places, country)).toEqual([{ name: "India", type: "country", place: country }]);
   });
 });

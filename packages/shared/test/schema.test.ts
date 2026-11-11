@@ -128,4 +128,14 @@ describe("appSchema", () => {
 
     expect(appSchema.safeParse(config).success).toBe(false);
   });
+
+  test("rejects an invalid Overpass URL or shop value", () => {
+    const badUrl = app();
+    badUrl.osm.overpassUrl = "not a url";
+    const badValue = app();
+    badValue.osm.shopValues = ["clothes", "x|y"];
+
+    expect(appSchema.safeParse(badUrl).success).toBe(false);
+    expect(appSchema.safeParse(badValue).success).toBe(false);
+  });
 });

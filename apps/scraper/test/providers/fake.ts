@@ -21,7 +21,7 @@ export interface FakeProvider extends Provider {
   calls: ProviderQuery[];
 }
 
-/** Records each query it receives and returns one sighting per call. */
+/** Records each query it receives and returns one new sighting per call. */
 export function fakeProvider(
   name: ProviderName,
   options: { supports?: QueryKind[]; estimate?: number; fail?: boolean } = {},
@@ -36,7 +36,7 @@ export function fakeProvider(
       calls.push(query);
       if (options.fail) return Promise.reject(new Error("upstream failed"));
       const sighting: Sighting = { source: name, externalId: `${name}-${calls.length}`, placeKey: query.area.place.key };
-      return Promise.resolve([sighting]);
+      return Promise.resolve({ sightings: [sighting], unnamed: 0 });
     },
   };
 }

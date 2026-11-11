@@ -133,10 +133,44 @@ describe("withBudget", () => {
     const inner = fakeProvider("exa");
     const provider = withBudget(inner, guard);
 
-    const sightings = await provider.search(textQuery, {});
+    const result = await provider.search(textQuery, {});
 
-    expect(sightings).toEqual([{ source: "exa", externalId: "exa-1", placeKey: "goa" }]);
+    expect(result).toEqual({ sightings: [{ source: "exa", externalId: "exa-1", placeKey: "goa" }], unnamed: 0 });
     expect(guard.usage("exa").dailyCalls).toBe(1);
+  });
+
+  test("gives the provider ctx.reserve for extra requests, and reports every reservation", async () => {
+    const reserved: number[] = [];
+    const inner = fakeProvider("exa");
+    const search = inner.search.bind(inner);
+    inner.search = async (query, ctx) => {
+      ctx.reserve(1);
+      return search(query, ctx);
+    };
+
+    await withBudget(inner, guard).search(textQuery, { onReserve: (calls) => reserved.push(calls) });
+
+    expect(reserved).toEqual([1, 1]);
+    expect(guard.usage("exa").dailyCalls).toBe(2);
+  });
+
+  test("ctx.reserve refuses an extra request past the limit", async () => {
+    const inner = fakeProvider("exa", { estimate: 3 });
+    let refused: unknown;
+    const search = inner.search.bind(inner);
+    inner.search = async (query, ctx) => {
+      try {
+        ctx.reserve(1);
+      } catch (error) {
+        refused = error;
+      }
+      return search(query, ctx);
+    };
+
+    await withBudget(inner, guard).search(textQuery);
+
+    expect(refused).toBeInstanceOf(BudgetExceededError);
+    expect(guard.usage("exa").dailyCalls).toBe(3);
   });
 
   test("blocks the inner search once over budget", async () => {

@@ -49,9 +49,12 @@ describe("openDb", () => {
     const db = open(":memory:");
 
     expect(db.$client.pragma("foreign_keys", { simple: true })).toBe(1);
+    db.$client.prepare("insert into runs (command, city, started_at, params) values ('find', 'goa', '', '{}')").run();
     expect(() =>
       db.$client
-        .prepare("insert into sightings (business_id, source, raw_json) values (999, 'osm', '{}')")
+        .prepare(
+          "insert into sightings (business_id, source, external_id, place_key, run_id, raw_json) values (999, 'osm', 'node/1', 'goa', 1, '{}')",
+        )
         .run(),
     ).toThrow(/FOREIGN KEY/);
   });
