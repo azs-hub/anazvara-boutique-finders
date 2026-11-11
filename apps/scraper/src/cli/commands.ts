@@ -148,8 +148,9 @@ export function runFind(ctx: CliContext, options: FindOptions): void {
 
   withDb(ctx, (db) => {
     const run = startRun(db, {
+      command: "find",
       city: place.key,
-      params: { command: "find", location: options.location, placeKey: place.key, new: target, sources: only ?? "all" },
+      params: { location: options.location, placeKey: place.key, new: target, sources: only ?? "all" },
     });
     ctx.out(`Run #${run.id}`);
     ctx.out(`Place: ${place.name} (${place.type}, ${place.country}) [${place.key}]`);

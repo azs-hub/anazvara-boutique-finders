@@ -5,13 +5,14 @@ import { runs } from "./schema.js";
 export type Run = typeof runs.$inferSelect;
 
 type StartRunInput = {
+  command: string;
   city: string;
   params?: Record<string, unknown>;
   now?: Date;
 };
 
-export function startRun(db: Db, { city, params = {}, now = new Date() }: StartRunInput): Run {
-  return db.insert(runs).values({ city, params, startedAt: now.toISOString() }).returning().get();
+export function startRun(db: Db, { command, city, params = {}, now = new Date() }: StartRunInput): Run {
+  return db.insert(runs).values({ command, city, params, startedAt: now.toISOString() }).returning().get();
 }
 
 export function finishRun(db: Db, id: number, stats: Record<string, unknown>, now = new Date()): Run {

@@ -35,6 +35,9 @@ describe("openDb", () => {
     expect(tables.map((table) => table.name).sort()).toEqual([
       "api_usage",
       "businesses",
+      "evidence",
+      "jobs",
+      "overrides",
       "pages",
       "qualifications",
       "runs",

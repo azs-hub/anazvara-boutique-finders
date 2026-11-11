@@ -13,14 +13,16 @@ afterEach(() => {
 });
 
 describe("startRun", () => {
-  test("stores the city, params and start time and leaves the run open", () => {
+  test("stores the command, city, params and start time and leaves the run open", () => {
     const run = startRun(db, {
+      command: "find",
       city: "Goa",
       params: { target: 50 },
       now: new Date("2026-11-05T10:00:00.000Z"),
     });
 
     expect(run).toMatchObject({
+      command: "find",
       city: "Goa",
       params: { target: 50 },
       startedAt: "2026-11-05T10:00:00.000Z",
@@ -30,13 +32,13 @@ describe("startRun", () => {
   });
 
   test("defaults params to an empty object", () => {
-    expect(startRun(db, { city: "Goa" }).params).toEqual({});
+    expect(startRun(db, { command: "find", city: "Goa" }).params).toEqual({});
   });
 });
 
 describe("finishRun", () => {
   test("records the finish time and stats", () => {
-    const { id } = startRun(db, { city: "Goa" });
+    const { id } = startRun(db, { command: "find", city: "Goa" });
 
     const finished = finishRun(db, id, { leads: 3 }, new Date("2026-11-05T11:00:00.000Z"));
 
@@ -54,7 +56,7 @@ describe("finishRun", () => {
 
 describe("getRun", () => {
   test("returns a stored run", () => {
-    const run = startRun(db, { city: "Goa" });
+    const run = startRun(db, { command: "find", city: "Goa" });
 
     expect(getRun(db, run.id)).toEqual(run);
   });

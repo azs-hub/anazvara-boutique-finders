@@ -41,8 +41,9 @@ describe("find (smoke)", () => {
     const stored = getRun(db, 1);
     db.$client.close();
     expect(stored).toMatchObject({
+      command: "find",
       city: "goa",
-      params: { command: "find", location: "goa", placeKey: "goa", new: 50, sources: "all" },
+      params: { location: "goa", placeKey: "goa", new: 50, sources: "all" },
       statsJson: { areas: 25, providers: [], sightings: 0, newBusinesses: 0 },
     });
     expect(stored?.finishedAt).not.toBeNull();
@@ -64,7 +65,7 @@ describe("other commands", () => {
 
   test("db migrate creates the database, budget reads it", async () => {
     await run("db", "migrate");
-    expect(lines).toEqual([`Created database: ${dbPath}`, "Migrations applied: 1 (up to date)"]);
+    expect(lines).toEqual([`Created database: ${dbPath}`, "Migrations applied: 2 (up to date)"]);
 
     lines = [];
     await run("budget");

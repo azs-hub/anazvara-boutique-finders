@@ -2,19 +2,24 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { openDb, type Db } from "../src/client.js";
 import { startRun } from "../src/runs.js";
-import { apiUsage, BUSINESS_STATUSES, businesses, SIGHTING_SOURCES, sightings } from "../src/schema.js";
+import {
+  apiUsage,
+  CONFIDENCE_LEVELS,
+  CRM_STATUSES,
+  EVIDENCE_SOURCES,
+  FIT_LEVELS,
+  JOB_STATUSES,
+  JOB_TYPES,
+  jobs,
+  PHYSICAL_STORE_VALUES,
+  PRIORITIES,
+  SIGHTING_SOURCES,
+  sightings,
+  SYSTEM_DECISIONS,
+} from "../src/schema.js";
+import { insertBusiness, NOW } from "./helpers.js";
 
 let db: Db;
-const NOW = "2026-11-05T00:00:00.000Z";
-
-function insertBusiness(mapsPlaceId: string | null = null) {
-  const run = startRun(db, { city: "Goa" });
-  return db
-    .insert(businesses)
-    .values({ name: "Test Shop", firstSeenRun: run.id, updatedAt: NOW, mapsPlaceId })
-    .returning()
-    .get();
-}
 
 beforeEach(() => {
   db = openDb(":memory:");
@@ -24,42 +29,115 @@ afterEach(() => {
   db.$client.close();
 });
 
+// One case per CHECK constraint: table, column, allowed values, and a raw insert of one value.
+type EnumCase = { column: string; values: readonly string[]; insert: (value: string) => void };
+
+const businessColumn = (column: string, values: readonly string[]): EnumCase => ({
+  column: `businesses.${column}`,
+  values,
+  insert: (value) => {
+    const run = startRun(db, { command: "find", city: "Goa" });
+    db.$client
+      .prepare(`insert into businesses (name, first_seen_run, updated_at, ${column}) values ('Shop', ?, ?, ?)`)
+      .run(run.id, NOW, value);
+  },
+});
+
+const ENUM_CASES: EnumCase[] = [
+  businessColumn("physical_store", PHYSICAL_STORE_VALUES),
+  businessColumn("physical_store_confidence", CONFIDENCE_LEVELS),
+  businessColumn("maps_match_confidence", CONFIDENCE_LEVELS),
+  businessColumn("system_decision", SYSTEM_DECISIONS),
+  businessColumn("crm_status", CRM_STATUSES),
+  businessColumn("fit", FIT_LEVELS),
+  businessColumn("priority", PRIORITIES),
+  {
+    column: "sightings.source",
+    values: SIGHTING_SOURCES,
+    insert: (value) => db.$client.prepare("insert into sightings (source, raw_json) values (?, '{}')").run(value),
+  },
+  {
+    column: "evidence.source",
+    values: EVIDENCE_SOURCES,
+    insert: (value) => insertEvidence(value, "high"),
+  },
+  {
+    column: "evidence.confidence",
+    values: CONFIDENCE_LEVELS,
+    insert: (value) => insertEvidence("website", value),
+  },
+  { column: "jobs.type", values: JOB_TYPES, insert: (value) => insertJob(value, "queued") },
+  { column: "jobs.status", values: JOB_STATUSES, insert: (value) => insertJob("find", value) },
+];
+
+function insertEvidence(source: string, confidence: string): void {
+  const business = insertBusiness(db);
+  db.$client
+    .prepare(
+      "insert into evidence (business_id, field, value, source, confidence, created_at) values (?, 'address', 'x', ?, ?, ?)",
+    )
+    .run(business.id, source, confidence, NOW);
+}
+
+function insertJob(type: string, status: string): void {
+  db.$client
+    .prepare("insert into jobs (type, status, params, created_at) values (?, ?, '{}', ?)")
+    .run(type, status, NOW);
+}
+
+describe.each(ENUM_CASES)("$column CHECK", ({ values, insert }) => {
+  test("rejects an invalid value", () => {
+    expect(() => insert("maybe")).toThrow(/CHECK/);
+  });
+
+  test.each(values)("accepts %s", (value) => {
+    expect(() => insert(value)).not.toThrow();
+  });
+});
+
 describe("businesses", () => {
-  test("defaults status to new", () => {
-    expect(insertBusiness().status).toBe("new");
+  test("starts unknown, unscored, outside the CRM and contactable", () => {
+    expect(insertBusiness(db)).toMatchObject({
+      physicalStore: "unknown",
+      physicalStoreConfidence: null,
+      systemDecision: null,
+      crmStatus: null,
+      fit: null,
+      priority: null,
+      doNotContact: false,
+    });
   });
 
   test("allows many null place ids but rejects a repeated one", () => {
-    insertBusiness();
-    insertBusiness();
-    insertBusiness("place-1");
+    insertBusiness(db);
+    insertBusiness(db);
+    insertBusiness(db, { mapsPlaceId: "place-1" });
 
-    const run = startRun(db, { city: "Goa" });
-    const insertDuplicate = db.$client.prepare(
-      "insert into businesses (name, first_seen_run, updated_at, maps_place_id) values ('Copy', ?, ?, 'place-1')",
-    );
-
-    expect(() => insertDuplicate.run(run.id, NOW)).toThrow(/UNIQUE/);
+    expect(() => insertBusiness(db, { mapsPlaceId: "place-1" })).toThrow(/UNIQUE/);
   });
 
-  const insertWithStatus = (status: string) => {
-    const run = startRun(db, { city: "Goa" });
-    db.$client
-      .prepare("insert into businesses (name, first_seen_run, updated_at, status) values ('Shop', ?, ?, ?)")
-      .run(run.id, NOW, status);
-  };
+  test("has an index on system_decision + priority", () => {
+    const columns = db.$client.prepare("select name from pragma_index_info('businesses_decision_priority_idx')").all();
 
-  test("rejects an invalid status", () => {
-    expect(() => insertWithStatus("maybe")).toThrow(/CHECK/);
-  });
-
-  test.each(BUSINESS_STATUSES)("accepts status %s", (status) => {
-    expect(() => insertWithStatus(status)).not.toThrow();
+    expect(columns).toEqual([{ name: "system_decision" }, { name: "priority" }]);
   });
 
   test("cannot be deleted while a sighting points at it", () => {
-    const business = insertBusiness();
+    const business = insertBusiness(db);
     db.insert(sightings).values({ businessId: business.id, source: "osm", rawJson: {} }).run();
+
+    const deleteBusiness = db.$client.prepare("delete from businesses where id = ?");
+
+    expect(() => deleteBusiness.run(business.id)).toThrow(/FOREIGN KEY/);
+  });
+
+  test("cannot be deleted while evidence points at it", () => {
+    const business = insertBusiness(db);
+    db.$client
+      .prepare(
+        "insert into evidence (business_id, field, value, source, created_at) values (?, 'physical_store', 'yes', 'website', ?)",
+      )
+      .run(business.id, NOW);
 
     const deleteBusiness = db.$client.prepare("delete from businesses where id = ?");
 
@@ -68,26 +146,15 @@ describe("businesses", () => {
 });
 
 describe("sightings", () => {
-  const insertWithSource = (source: string) =>
-    db.$client.prepare("insert into sightings (source, raw_json) values (?, '{}')").run(source);
-
   test("can be saved before merge, without a business", () => {
     const row = db.insert(sightings).values({ source: "osm", rawJson: {} }).returning().get();
 
     expect(row.businessId).toBeNull();
   });
 
-  test("rejects an invalid source", () => {
-    expect(() => insertWithSource("myspace")).toThrow(/CHECK/);
-  });
-
-  test.each(SIGHTING_SOURCES)("accepts source %s", (source) => {
-    expect(() => insertWithSource(source)).not.toThrow();
-  });
-
   // Names the index because SQLite's planner prefers sightings_business_id_idx for this query.
   test("partial index returns only unmerged rows", () => {
-    const business = insertBusiness();
+    const business = insertBusiness(db);
     db.insert(sightings).values({ businessId: business.id, source: "osm", rawJson: {} }).run();
     const unmerged = db.insert(sightings).values({ source: "osm", rawJson: {} }).returning().get();
 
@@ -99,13 +166,34 @@ describe("sightings", () => {
   });
 
   test("round-trips raw_json", () => {
-    const business = insertBusiness();
+    const business = insertBusiness(db);
     const raw = { tags: { shop: "boutique" }, ids: [1, 2] };
 
     db.insert(sightings).values({ businessId: business.id, source: "osm", rawJson: raw }).run();
 
     const row = db.select().from(sightings).where(eq(sightings.businessId, business.id)).get();
     expect(row?.rawJson).toEqual(raw);
+  });
+});
+
+describe("jobs", () => {
+  test("a new job is queued, with no progress, error or run", () => {
+    const job = db
+      .insert(jobs)
+      .values({ type: "find", params: { location: "goa" }, createdAt: NOW })
+      .returning()
+      .get();
+
+    expect(job).toMatchObject({
+      type: "find",
+      params: { location: "goa" },
+      status: "queued",
+      progress: null,
+      error: null,
+      runId: null,
+      startedAt: null,
+      finishedAt: null,
+    });
   });
 });
 
