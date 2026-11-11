@@ -10,7 +10,7 @@ import {
   type Config,
 } from "./schema.js";
 
-const CONFIG_DIR = fileURLToPath(new URL("../../config", import.meta.url));
+export const CONFIG_DIR = fileURLToPath(new URL("../../config", import.meta.url));
 
 /** Invalid configuration. The message is meant to be shown to the user as is. */
 export class ConfigError extends Error {

@@ -173,7 +173,7 @@ Each phase is reviewed and committed before the next one starts.
 - [x] Database: Drizzle schema + migrations for the tables above (`2d2591d`).
 - [x] Config (`zod`, `src/config/`): `config/app.json` (providers, budgets, thresholds), `config/places.json` (India, Goa as a region, and 9 cities ported from `geography.py`), `config/markets.json` (India) and `config/anazvara-profile.json` (placeholders).
 - [x] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard (`src/providers/`). The registry is empty until Phase 2.
-- [ ] CLI skeleton: `pnpm cli <command>`, with `find` taking `--location`. `src/cli.ts` has no commands yet.
+- [x] CLI skeleton (`src/cli.ts`, `src/cli/`): `find`, `places`, `config`, `budget`, `db migrate`. `find` resolves the place and records a run; discovery comes in Phase 2.
 - [ ] Wrap-up: review Phase 1 against this plan.
 
 ### Phase 1.5 — Workspace & schema (next, only after Phase 1)

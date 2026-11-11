@@ -18,7 +18,7 @@ Finds physical multi-brand / concept / designer boutiques in India and other mar
 - `pnpm check`: typecheck + lint + tests. Run it after every change and fix failures before saying a task is done.
 - `pnpm db:generate --name <name>` after editing `src/db/schema.ts`. Never hand-edit files in `drizzle/`.
 - The CLI is always `pnpm cli <command>`, never `pnpm <command>`.
-- `pnpm cli find --location <place>` finds boutiques in a city, region or country (planned; `src/cli.ts` has no commands yet).
+- `pnpm cli find --location <place>` finds boutiques in a city, region or country (no providers until Phase 2). Other commands: `places`, `config`, `budget`, `db migrate`; see README.
 
 ## Rules
 - `legacy/` is the old Python version. Read it for ideas (`legacy/src/geography.py`, `url_normalization.py`, `deduplication.py`, `search_queries.py`). Never modify it or port it line by line.
