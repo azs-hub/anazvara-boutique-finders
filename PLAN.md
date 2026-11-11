@@ -107,47 +107,46 @@ Instagram: **don't scrape it** (ToS, blocks). Capture handles from websites, Map
 
 ### Data model
 
-Built in Phase 1 (schema in `src/db/schema.ts`; database file defaults to `data/stockists.db`):
+Built in Phases 1 and 1.5 (schema in `packages/database/src/schema.ts`; database file defaults to `data/stockists.db`):
 
 ```
-runs            id, city, started_at, finished_at, params, stats_json
-businesses      id, name, city, locality, address, lat, lng, website_domain, instagram,
-                phone, email, maps_place_id, status(new|qualified|lead|review|rejected|contacted),
-                score, first_seen_run, updated_at
-sightings       id, business_id (null until merged), source(osm|places|searxng|exa|tavily|guide),
+runs            id, command, city, started_at, finished_at, params, stats_json
+businesses      id, name, country, region, city, locality, address, lat, lng, store_type,
+                website_domain, instagram, phone, whatsapp, email, contact_person, contact_role,
+                maps_place_id, maps_url, maps_verified_at, maps_match_confidence(high|medium|low),
+                physical_store(yes|no|unknown, default unknown), physical_store_confidence(high|medium|low),
+                verified_at, score, fit(high|medium|low|exclude), priority(top|high|medium|low|exclude),
+                system_decision(lead|review|excluded), set by the scraper, null until scored,
+                crm_status(to_prospect|contacted|followed_up|qualified|in_discussion|offer_sent|
+                  to_recontact|lost|invalid), set only by the user,
+                last_contacted, next_follow_up, do_not_contact (default false), first_seen_run, updated_at
+sightings       id, business_id (null until merged), source(osm|places|searxng|exa|tavily|guide|manual),
                 source_url, query, raw_json
 pages           id, url, business_id, fetched_at, status, text, jsonld
 qualifications  id, business_id, model, json, created_at
+evidence        id, business_id, field, value, source(osm|places|searxng|exa|tavily|guide|website|llm|user|manual),
+                source_url, quote, confidence(high|medium|low), sighting_id, page_id, run_id, created_at
+overrides       business_id + field (primary key), value (json), edited_at, note
+jobs            id, type(find|verify|qualify|export), params, status(queued|running|done|failed|cancelled,
+                default queued), progress, error, run_id, created_at, started_at, finished_at
 api_usage       provider, day, calls, cost_usd   (primary key: provider + day)
 ```
 
 - **Save first, merge later:** sightings are saved with a null `business_id`, so a crash before merge doesn't lose results or repeat paid calls. Merge sets `business_id`.
-- **Allowed values:** status and source columns have CHECK constraints built from the same const arrays as the TypeScript types.
+- **Allowed values:** every enum column has a CHECK constraint built from the same const array as its TypeScript type. CHECKs name columns unqualified, because drizzle-kit rebuilds tables as `__new_<table>` and SQLite then rejects a rename when a CHECK still names the old table.
 - **Indexes:**
-  - `businesses`: unique on `maps_place_id`; plain on `website_domain`, `instagram`, `phone`, and `city` + `status`.
+  - `businesses`: unique on `maps_place_id`; plain on `website_domain`, `instagram`, `phone`, `city`, and `system_decision` + `priority`.
   - `sightings`: `business_id`, plus a partial index for unmerged rows (`WHERE business_id IS NULL`).
   - `pages`: unique on `business_id` + `url`.
   - `qualifications`: `business_id`.
-- **No cascading deletes:** foreign keys block deletes, so a merge must move sightings, pages, qualifications and (from 1.5) evidence and notes to the surviving business before deleting the other one.
-
-Planned for Phase 1.5:
-
-```
-evidence        business_id, field, value, source, source_url, quote, confidence, created_at
-overrides       business_id, field, value, edited_by_user_at   (locked against later runs)
-jobs            type, location, params, status(queued|running|done|failed|cancelled), progress, error
-businesses      + physical_store (yes|no|unknown), physical_store_confidence (high|medium|low),
-                + system_decision (lead|review|excluded), set by the scraper, recalculated each run
-                + crm_status (to_prospect|contacted|followed_up|qualified|in_discussion|offer_sent|
-                  to_recontact|lost|invalid), set only by the user
-                + last_contacted, next_follow_up
-                + google_place_id, google_maps_url (replaces maps_place_id)
-                - status (replaced by system_decision + crm_status)
-runs            city → location
-```
-
-- **Google Maps storage (main spec §7.1):** only `google_place_id` and `google_maps_url` are stored permanently, plus the verification result as evidence. Lat/lng may be cached for 30 days at most. Other details are fetched live; address and phone in the CRM come from the shop's website or the user.
-- **Not in the schema yet, though tech spec §5.4 lists them as built:** a content hash on `pages`, and input hash + prompt version + per-signal rows on `qualifications`.
+  - `evidence`: `business_id` + `field`.
+  - `jobs`: `status` + `created_at`.
+- **No cascading deletes:** foreign keys block deletes, so a merge must move sightings, pages, qualifications, evidence and overrides (and later notes) to the surviving business before deleting the other one.
+- **User-lock:** an `overrides` row locks a businesses field (by column name) against later runs. `value` may be null, so the user can lock a field to empty. Helpers: `setOverride`, `getOverrides`, and `applyOverrides(business, overrides)` (pure, for the Phase 2+ merge code). `addEvidence` and `listEvidence` cover evidence.
+- **Jobs:** table only. The worker comes with the CRM (Phase 7).
+- **Google Maps storage (main spec §7.1):** only `maps_place_id` and `maps_url` are stored permanently, plus the verification result (`maps_verified_at`, `maps_match_confidence`, and evidence rows). There are no columns for the Maps name, address, phone, rating or reviews. Lat/lng may be cached for 30 days at most. Other details are fetched live; address and phone in the CRM come from the shop's website or the user.
+- **Migration `0001` hand edits** (everything else is drizzle-kit output): the `businesses` rebuild copies only the columns that existed before (drizzle-kit selected the new ones too, which fails), and `runs.command` is added with `DEFAULT ''` and then backfilled from `params.command` (SQLite can't add a NOT NULL column without a default).
+- **Not in the schema yet, though tech spec §5.4 lists them as built:** a content hash on `pages`; input hash, prompt version and per-signal rows on `qualifications`; `runs.city` → `location`.
 
 Dedupe = Places `place_id` → website domain → IG handle → normalized phone → normalized name + locality (fuzzy, e.g. `fastest-levenshtein`).
 
@@ -171,14 +170,14 @@ Each phase is reviewed and committed before the next one starts.
 ### Phase 1 — Skeleton & storage (in progress)
 - [x] Tooling: pnpm, TS strict, ESLint, Vitest (`942ce6d`).
 - [x] Database: Drizzle schema + migrations for the tables above (`2d2591d`).
-- [x] Config (`zod`, `src/config/`): `config/app.json` (providers, budgets, thresholds), `config/places.json` (India, Goa as a region, and 9 cities ported from `geography.py`), `config/markets.json` (India) and `config/anazvara-profile.json` (placeholders).
-- [x] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard (`src/providers/`). The registry is empty until Phase 2.
-- [x] CLI skeleton (`src/cli.ts`, `src/cli/`): `find`, `places`, `config`, `budget`, `db migrate`. `find` resolves the place and records a run; discovery comes in Phase 2.
+- [x] Config (`zod`, now `packages/shared/`): `config/app.json` (providers, budgets, thresholds), `config/places.json` (India, Goa as a region, and 9 cities ported from `geography.py`), `config/markets.json` (India) and `config/anazvara-profile.json` (placeholders).
+- [x] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard (`apps/scraper/src/providers/`). The registry is empty until Phase 2.
+- [x] CLI skeleton (`apps/scraper/src/cli.ts`, `cli/`): `find`, `places`, `config`, `budget`, `db migrate`. `find` resolves the place and records a run; discovery comes in Phase 2.
 - [ ] Wrap-up: review Phase 1 against this plan.
 
-### Phase 1.5 — Workspace & schema (next, only after Phase 1)
-- [ ] Move to a pnpm workspace: `apps/scraper`, `packages/database`, `packages/shared`, `packages/scoring` (`apps/web` comes in Phase 7).
-- [ ] Add the evidence, overrides and jobs tables and the `businesses` fields from section 3.
+### Phase 1.5 — Workspace & schema (in progress)
+- [x] Move to a pnpm workspace: `apps/scraper`, `packages/database`, `packages/shared`, `packages/scoring` (`apps/web` comes in Phase 7). Packages are imported as `@anazvara/*`; one root tsconfig, vitest and ESLint config cover them all.
+- [x] Add the evidence, overrides and jobs tables, the CRM and verification fields on `businesses`, and `runs.command` (spec v1.1; migration `0001_crm_evidence_overrides_jobs`).
 
 ### Phase 2 — High-yield sources first
 - [ ] **Overpass provider**: clothes/boutique/fashion shops in the location's bbox → sightings.
@@ -219,16 +218,16 @@ Each phase is reviewed and committed before the next one starts.
 
 ## 5. Repo layout
 
-Today: a single package (`src/`, `drizzle/`, `test/`). Target from Phase 1.5:
+pnpm workspace since Phase 1.5. Each package has `src/` and `test/`.
 
 ```
 apps/
-  scraper/src/               # cli.ts, providers/ (+ budget.ts), discover/, resolve/, enrich/, qualify/, export/
+  scraper/                   # @anazvara/scraper: cli.ts, cli/, providers/ (+ budget.ts); later discover/, resolve/, enrich/, qualify/, export/
   web/                       # Next.js CRM (Phase 7)
 packages/
-  database/                  # Drizzle schema, migrations, client
-  shared/                    # config schemas, types, places catalog loader
-  scoring/                   # score, fit, priority (pure functions)
+  database/                  # @anazvara/database: Drizzle schema, client, runs; drizzle/ migrations, drizzle.config.ts
+  shared/                    # @anazvara/shared: config schemas, loader, places, provider statuses, repo paths
+  scoring/                   # @anazvara/scoring: score, fit, priority (pure functions; empty until Phase 5)
 config/                      # app.json, places.json, markets.json, anazvara-profile.json
 eval/golden.json
 legacy/ (python, read-only)

@@ -7,14 +7,15 @@ alwaysApply: true
 Finds physical multi-brand / concept / designer boutiques (India first: Goa, Mumbai, Delhi, Bengaluru) that could stock Anazvara, a contemporary Indian womenswear label. The Notion specs are the product source of truth: [main spec](https://app.notion.com/p/3e9be93e879780f7a5f4f385496c7bbc), [product specification](https://app.notion.com/p/3e9be93e87978019b53fe433880f0c90), [technical spec](https://app.notion.com/p/3e9be93e879780feb6cad8e2341911ae). PLAN.md is the implementation plan; read it before large changes.
 
 # Stack
-- Node 22, TypeScript strict, pnpm, ESM, tsx for scripts.
+- Node 22, TypeScript strict, pnpm workspace, ESM, tsx for scripts.
+- Layout: `apps/scraper` (CLI, providers, pipeline stages), `packages/database` (`@anazvara/database`: Drizzle schema, client, migrations in `drizzle/`), `packages/shared` (`@anazvara/shared`: config schemas, loader, places, shared types), `packages/scoring` (`@anazvara/scoring`). Import packages by name, not by relative path. `config/`, `data/`, `eval/` stay at the root; paths resolve from the repo root, not the working directory. Run all commands from the root.
 - SQLite via better-sqlite3 + Drizzle ORM. All stage output goes to the DB; stages must be idempotent and resumable.
 - zod for config and every LLM output. Ollama via the `ollama` npm package using `format: <JSON schema>`, temperature 0.
 - cheerio for HTML; Playwright only as an explicit fallback.
-- vitest; network calls are mocked with recorded fixtures in `test/fixtures/`.
+- vitest; network calls are mocked with recorded fixtures in each package's `test/fixtures/`.
 
 # Cost rules (hard)
-- Every external paid API call goes through `providers/budget.ts` and is refused once it exceeds the configured free allowance.
+- Every external paid API call goes through `apps/scraper/src/providers/budget.ts` and is refused once it exceeds the configured free allowance.
 - Never add a paid service without a config flag that defaults to off.
 - Cache LLM results by content hash; never re-qualify unchanged input.
 
