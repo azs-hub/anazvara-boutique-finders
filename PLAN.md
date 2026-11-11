@@ -172,7 +172,7 @@ Each phase is reviewed and committed before the next one starts.
 - [x] Tooling: pnpm, TS strict, ESLint, Vitest (`942ce6d`).
 - [x] Database: Drizzle schema + migrations for the tables above (`2d2591d`).
 - [x] Config (`zod`, `src/config/`): `config/app.json` (providers, budgets, thresholds), `config/places.json` (India, Goa as a region, and 9 cities ported from `geography.py`), `config/markets.json` (India) and `config/anazvara-profile.json` (placeholders).
-- [ ] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard.
+- [x] `Provider` interface: `search(query, ctx) → Sighting[]` + budget guard (`src/providers/`). The registry is empty until Phase 2.
 - [ ] CLI skeleton: `pnpm cli <command>`, with `find` taking `--location`. `src/cli.ts` has no commands yet.
 - [ ] Wrap-up: review Phase 1 against this plan.
 
